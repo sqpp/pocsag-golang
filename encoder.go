@@ -194,33 +194,47 @@ func SplitMessageIntoFrames(encoded7bit []byte) []uint32 {
 	return batches
 }
 
-// CreatePOCSAGPacket creates a complete POCSAG packet
+// MessageInfo represents a single message to encode
+type MessageInfo struct {
+	Address  uint32
+	Message  string
+	Function uint8
+}
+
+// CreatePOCSAGPacket creates a complete POCSAG packet with a single message
 func CreatePOCSAGPacket(address uint32, message string, function uint8) []byte {
+	return CreatePOCSAGBurst([]MessageInfo{{Address: address, Message: message, Function: function}})
+}
+
+// CreatePOCSAGBurst creates a POCSAG packet with multiple messages (burst mode)
+func CreatePOCSAGBurst(messages []MessageInfo) []byte {
 	// Generate preamble (alternating 1010...)
 	preamble := make([]byte, PreambleLength/8)
 	for i := range preamble {
 		preamble[i] = 0xAA
 	}
 
-	// Create codewords
-	codewords := make([]uint32, 0, 16)
+	// Create codewords for all messages
+	codewords := make([]uint32, 0, 16*len(messages))
 
-	// Add address codeword
-	addressCW := EncodeAddress(address, function)
-	codewords = append(codewords, addressCW)
+	for _, msg := range messages {
+		// Add address codeword
+		addressCW := EncodeAddress(msg.Address, msg.Function)
+		codewords = append(codewords, addressCW)
 
-	// Add message codewords - use appropriate encoder based on function
-	var encodedMessage []byte
-	if function == FuncNumeric {
-		// Numeric messages use BCD encoding
-		encodedMessage = NumericBCDEncoder(message)
-	} else {
-		// Alphanumeric and other functions use 7-bit ASCII
-		encodedMessage = Ascii7BitEncoder(message + "\x03") // ETX terminator
+		// Add message codewords - use appropriate encoder based on function
+		var encodedMessage []byte
+		if msg.Function == FuncNumeric {
+			// Numeric messages use BCD encoding
+			encodedMessage = NumericBCDEncoder(msg.Message)
+		} else {
+			// Alphanumeric and other functions use 7-bit ASCII
+			encodedMessage = Ascii7BitEncoder(msg.Message + "\x03") // ETX terminator
+		}
+
+		messageCWs := SplitMessageIntoFrames(encodedMessage)
+		codewords = append(codewords, messageCWs...)
 	}
-
-	messageCWs := SplitMessageIntoFrames(encodedMessage)
-	codewords = append(codewords, messageCWs...)
 
 	// Pad to multiple of 16 codewords (full batches)
 	// Each batch needs sync word + 16 codewords

@@ -22,6 +22,9 @@ go install github.com/sqpp/pocsag-golang/cmd/pocsag@latest
 
 # Install decoder
 go install github.com/sqpp/pocsag-golang/cmd/pocsag-decode@latest
+
+# Install burst encoder (multiple messages)
+go install github.com/sqpp/pocsag-golang/cmd/pocsag-burst@latest
 ```
 
 Or build from source:
@@ -31,6 +34,7 @@ git clone https://github.com/sqpp/pocsag-golang.git
 cd pocsag-golang
 go build ./cmd/pocsag
 go build ./cmd/pocsag-decode
+go build ./cmd/pocsag-burst
 ```
 
 ## Usage
