@@ -1,0 +1,63 @@
+# This workflow will build a golang project
+# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-go
+
+name: Go
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+
+  build:
+    runs-on: ubuntu-latest
+    
+    # Define a matrix for different GOOS/GOARCH combinations
+    strategy:
+      matrix:
+        goos: [linux, windows, darwin] # Example: Build for common OSes
+        goarch: [amd64, 386, arm64] # Include your desired architectures (amd64, x86/386, arm64)
+        
+        # Exclude combinations that don't make sense or aren't supported
+        exclude:
+          - goos: windows
+            goarch: arm64
+          - goos: darwin
+            goarch: 386
+    
+    # Use the matrix values in the job name
+    name: Build ${{ matrix.goos }}-${{ matrix.goarch }} 
+    
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.20'
+    
+    # The build step now uses GOOS and GOARCH environment variables
+    - name: Cross-Compile
+      # Set the GOOS and GOARCH environment variables for cross-compilation
+      env:
+        GOOS: ${{ matrix.goos }}
+        GOARCH: ${{ matrix.goarch }}
+      # The build output is directed to a specific file name
+      run: |
+        OUTPUT_NAME="${{ github.event.repository.name }}-${{ matrix.goos }}-${{ matrix.goarch }}"
+        if [ "${{ matrix.goos }}" = "windows" ]; then
+          OUTPUT_NAME+=".exe"
+        fi
+        go build -v -o $OUTPUT_NAME ./...
+
+    # Optional: You may want to skip tests for cross-compilation or run them on a single architecture
+    # - name: Test
+    #   run: go test -v ./...
+      
+    # Optional: Upload the compiled binary as an artifact
+    - uses: actions/upload-artifact@v4
+      with:
+        name: ${{ github.event.repository.name }}-${{ matrix.goos }}-${{ matrix.goarch }}
+        path: ${{ github.event.repository.name }}-${{ matrix.goos }}-${{ matrix.goarch }}* # Use wildcard for .exe
