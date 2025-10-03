@@ -58,6 +58,7 @@ pocsag -a 123456 -m "TEST API" -o test.wav --json
 
 **Parameters:**
 - `--address` / `-a`: Pager address (RIC) - **REQUIRED**
+  - Note: POCSAG addresses are automatically rounded to multiples of 8 (e.g., 1234567 → 1234560)
 - `--message` / `-m`: Message text - **REQUIRED**
 - `--output` / `-o`: Output WAV file (default: `output.wav`)
 - `--function` / `-f`: Message type - `0` for numeric, `3` for alphanumeric (default: `3`)

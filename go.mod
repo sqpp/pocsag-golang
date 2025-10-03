@@ -1,3 +1,3 @@
 module github.com/sqpp/pocsag-golang
 
-go 1.22.2
+go 1.22

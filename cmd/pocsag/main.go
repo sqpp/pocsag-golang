@@ -30,6 +30,9 @@ func main() {
 	// Check required parameters
 	if *address == 0 || *message == "" {
 		fmt.Fprintln(os.Stderr, "Error: Address and message are required")
+		fmt.Fprintln(os.Stderr, "")
+		fmt.Fprintln(os.Stderr, "Note: POCSAG addresses must be multiples of 8")
+		fmt.Fprintln(os.Stderr, "      (e.g., 8, 16, 24, 123456, 1234560)")
 		fmt.Fprintln(os.Stderr, "\nUsage examples:")
 		fmt.Fprintln(os.Stderr, "  # Alphanumeric message:")
 		fmt.Fprintln(os.Stderr, "  pocsag --address 123456 --message \"HELLO WORLD\" --output test.wav")
