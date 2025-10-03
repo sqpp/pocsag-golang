@@ -74,6 +74,9 @@ func NumericBCDEncoder(message string) []byte {
 		nibbles = append(nibbles, BitReverse4(nibble))
 	}
 
+	// Add terminator (0xA = unused nibble) to mark end of message
+	nibbles = append(nibbles, BitReverse4(0xA))
+
 	// Pack nibbles into bytes (2 nibbles per byte, MSB first)
 	numBytes := (len(nibbles) + 1) / 2
 	encoded := make([]byte, numBytes)

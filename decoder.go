@@ -167,13 +167,20 @@ func decodeNumericFromBits(bits []byte) string {
 			nibble = (nibble << 1) | bits[i+j]
 		}
 		nibble = BitReverse4(nibble)
+		
+		// Stop at terminator (0xA = unused nibble)
+		if nibble == 0xA {
+			break
+		}
+		
 		char := bcdToChar(nibble)
 		if char != 0 {
 			result = append(result, char)
 		}
 	}
 	msg := string(result)
-	for len(msg) > 0 && (msg[len(msg)-1] == ' ' || msg[len(msg)-1] == 0) {
+	// Trim trailing spaces
+	for len(msg) > 0 && msg[len(msg)-1] == ' ' {
 		msg = msg[:len(msg)-1]
 	}
 	return msg
