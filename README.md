@@ -96,6 +96,43 @@ Address:  123456  Function: 3  ALPHA    Message: HELLO WORLD
 }
 ```
 
+### Burst Encoder (Multiple Messages)
+
+Send multiple messages in one transmission:
+
+```bash
+# Create JSON file with messages
+cat > messages.json << 'EOF'
+[
+  {"address": 123456, "message": "FIRST MESSAGE", "function": 3},
+  {"address": 789012, "message": "SECOND MESSAGE", "function": 3},
+  {"address": 345678, "message": "0123456789", "function": 0}
+]
+EOF
+
+# Generate burst
+pocsag-burst --json messages.json --output burst.wav
+pocsag-burst -j messages.json -o burst.wav
+```
+
+**Parameters:**
+- `--json` / `-j`: JSON input file with message array - **REQUIRED**
+- `--output` / `-o`: Output WAV file (default: `burst.wav`)
+
+**JSON Format:**
+```json
+[
+  {
+    "address": 123456,
+    "message": "Your message here",
+    "function": 3
+  }
+]
+```
+- `address`: Pager address (RIC)
+- `message`: Message text
+- `function`: `0` for numeric, `3` for alphanumeric
+
 ## Library Usage
 
 ### Encoding
