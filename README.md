@@ -12,6 +12,7 @@ Complete Go implementation of POCSAG pager protocol with encoder and decoder, di
 - ✅ 7-bit ASCII alphanumeric encoding (function 3)
 - ✅ WAV audio generation and decoding (48kHz, 1200 baud)
 - ✅ Compatible with PDW and multimon-ng
+- ✅ JSON output support for API integration
 
 ## Installation
 
@@ -46,6 +47,9 @@ pocsag -a 123456 -m "HELLO WORLD" -o message.wav
 # Numeric message
 pocsag --address 999888 --message "0123456789" --function 0 --output numeric.wav
 pocsag -a 999888 -m "0123456789" -f 0 -o numeric.wav
+
+# JSON output (for API integration)
+pocsag -a 123456 -m "TEST API" -o test.wav --json
 ```
 
 **Parameters:**
@@ -53,6 +57,7 @@ pocsag -a 999888 -m "0123456789" -f 0 -o numeric.wav
 - `--message` / `-m`: Message text - **REQUIRED**
 - `--output` / `-o`: Output WAV file (default: `output.wav`)
 - `--function` / `-f`: Message type - `0` for numeric, `3` for alphanumeric (default: `3`)
+- `--json` / `-j`: Output result as JSON
 
 ### Decoder
 
