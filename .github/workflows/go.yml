@@ -38,26 +38,34 @@ jobs:
       with:
         go-version: '1.20'
     
-    # The build step now uses GOOS and GOARCH environment variables
+    # Build each command separately
     - name: Cross-Compile
-      # Set the GOOS and GOARCH environment variables for cross-compilation
       env:
         GOOS: ${{ matrix.goos }}
         GOARCH: ${{ matrix.goarch }}
-      # The build output is directed to a specific file name
       run: |
-        OUTPUT_NAME="${{ github.event.repository.name }}-${{ matrix.goos }}-${{ matrix.goarch }}"
+        mkdir -p dist
+        EXT=""
         if [ "${{ matrix.goos }}" = "windows" ]; then
-          OUTPUT_NAME+=".exe"
+          EXT=".exe"
         fi
-        go build -v -o $OUTPUT_NAME ./...
+        
+        # Build pocsag encoder
+        go build -v -o "dist/pocsag-${{ matrix.goos }}-${{ matrix.goarch }}${EXT}" ./cmd/pocsag
+        
+        # Build pocsag-decode decoder
+        go build -v -o "dist/pocsag-decode-${{ matrix.goos }}-${{ matrix.goarch }}${EXT}" ./cmd/pocsag-decode
+        
+        # Build pocsag-burst
+        go build -v -o "dist/pocsag-burst-${{ matrix.goos }}-${{ matrix.goarch }}${EXT}" ./cmd/pocsag-burst
 
-    # Optional: You may want to skip tests for cross-compilation or run them on a single architecture
-    # - name: Test
-    #   run: go test -v ./...
+    # Run tests (only on linux-amd64 to save time)
+    - name: Test
+      if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
+      run: go test -v ./...
       
-    # Optional: Upload the compiled binary as an artifact
+    # Upload all binaries as artifacts
     - uses: actions/upload-artifact@v4
       with:
-        name: ${{ github.event.repository.name }}-${{ matrix.goos }}-${{ matrix.goarch }}
-        path: ${{ github.event.repository.name }}-${{ matrix.goos }}-${{ matrix.goarch }}* # Use wildcard for .exe
+        name: binaries-${{ matrix.goos }}-${{ matrix.goarch }}
+        path: dist/*
