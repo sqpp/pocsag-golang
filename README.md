@@ -1,0 +1,185 @@
+# POCSAG-GO
+
+Complete Go implementation of POCSAG pager protocol with encoder and decoder, directly ported from [pocsag-tool](https://github.com/hazardousfirmware/pocsag-tool).
+
+## Features
+
+- ✅ **Full POCSAG encoder** - Generate pager messages
+- ✅ **Full POCSAG decoder** - Decode pager messages from WAV files
+- ✅ BCH(31,21) error correction
+- ✅ Address encoding/decoding
+- ✅ BCD numeric message encoding (function 0)
+- ✅ 7-bit ASCII alphanumeric encoding (function 3)
+- ✅ WAV audio generation and decoding (48kHz, 1200 baud)
+- ✅ Compatible with PDW and multimon-ng
+
+## Installation
+
+```bash
+# Install encoder
+go install github.com/marcell/pocsag-go/cmd/pocsag@latest
+
+# Install decoder
+go install github.com/marcell/pocsag-go/cmd/pocsag-decode@latest
+```
+
+Or build from source:
+
+```bash
+git clone https://github.com/marcell/pocsag-go.git
+cd pocsag-go
+go build ./cmd/pocsag
+go build ./cmd/pocsag-decode
+```
+
+## Usage
+
+### Encoder
+
+Generate POCSAG messages as WAV audio files:
+
+```bash
+# Alphanumeric message (default)
+pocsag --address 123456 --message "HELLO WORLD" --output message.wav
+pocsag -a 123456 -m "HELLO WORLD" -o message.wav
+
+# Numeric message
+pocsag --address 999888 --message "0123456789" --function 0 --output numeric.wav
+pocsag -a 999888 -m "0123456789" -f 0 -o numeric.wav
+```
+
+**Parameters:**
+- `--address` / `-a`: Pager address (RIC) - **REQUIRED**
+- `--message` / `-m`: Message text - **REQUIRED**
+- `--output` / `-o`: Output WAV file (default: `output.wav`)
+- `--function` / `-f`: Message type - `0` for numeric, `3` for alphanumeric (default: `3`)
+
+### Decoder
+
+Decode POCSAG messages from WAV files:
+
+```bash
+pocsag-decode --input message.wav
+pocsag-decode -i message.wav
+```
+
+**Output example:**
+```
+POCSAG1200: Decoded messages:
+Address:  123456  Function: 3  ALPHA    Message: HELLO WORLD
+```
+
+## Library Usage
+
+### Encoding
+
+```go
+package main
+
+import (
+    "os"
+    pocsag "github.com/marcell/pocsag-go"
+)
+
+func main() {
+    // Create alphanumeric message
+    packet := pocsag.CreatePOCSAGPacket(123456, "HELLO WORLD", pocsag.FuncAlphanumeric)
+    
+    // Convert to WAV audio
+    wavData := pocsag.ConvertToAudio(packet)
+    
+    // Save to file
+    os.WriteFile("output.wav", wavData, 0644)
+}
+```
+
+### Decoding
+
+```go
+package main
+
+import (
+    "fmt"
+    "os"
+    pocsag "github.com/marcell/pocsag-go"
+)
+
+func main() {
+    // Read WAV file
+    wavData, _ := os.ReadFile("message.wav")
+    
+    // Decode messages
+    messages, err := pocsag.DecodeFromAudio(wavData)
+    if err != nil {
+        panic(err)
+    }
+    
+    // Print decoded messages
+    for _, msg := range messages {
+        fmt.Println(msg.String())
+    }
+}
+```
+
+## API Reference
+
+### Constants
+
+- `FuncNumeric` (0) - Numeric messages
+- `FuncAlphanumeric` (3) - Alphanumeric messages
+- `FrameSyncWord` (0x7CD215D8) - POCSAG frame sync
+- `IdleCodeword` (0x7A89C197) - Idle codeword
+
+### Encoding Functions
+
+- `CreatePOCSAGPacket(address uint32, message string, function uint8) []byte`
+  - Creates a complete POCSAG packet with preamble, sync, address, and message
+  
+- `ConvertToAudio(pocsagData []byte) []byte`
+  - Converts POCSAG bytes to WAV audio (48kHz, 16-bit PCM, mono)
+
+- `EncodeAddress(address uint32, function uint8) uint32`
+  - Encodes an address codeword with BCH and parity
+
+- `Ascii7BitEncoder(message string) []byte`
+  - Encodes ASCII text to 7-bit format for alphanumeric messages
+
+- `NumericBCDEncoder(message string) []byte`
+  - Encodes numeric strings to BCD format (supports 0-9, space, -, [, ], U)
+
+### Decoding Functions
+
+- `DecodeFromAudio(wavData []byte) ([]DecodedMessage, error)`
+  - Decodes POCSAG messages from WAV audio data
+
+- `DecodeFromBinary(data []byte) ([]DecodedMessage, error)`
+  - Decodes POCSAG messages from raw binary data
+
+- `DecodeReader(r io.Reader) ([]DecodedMessage, error)`
+  - Decodes POCSAG from an io.Reader
+
+### Types
+
+```go
+type DecodedMessage struct {
+    Address   uint32
+    Function  uint8
+    Message   string
+    IsNumeric bool
+}
+```
+
+## Testing with PDW / multimon-ng
+
+The generated WAV files are compatible with:
+- **PDW** (Paging Decode for Windows)
+- **multimon-ng** - `multimon-ng -t wav -a POCSAG1200 message.wav`
+
+## Credits
+
+Encoder ported from [pocsag-tool](https://github.com/hazardousfirmware/pocsag-tool) by hazardousfirmware.
+
+## License
+
+BSD-2-Clause (same as original pocsag-tool)
+
