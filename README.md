@@ -17,17 +17,17 @@ Complete Go implementation of POCSAG pager protocol with encoder and decoder, di
 
 ```bash
 # Install encoder
-go install github.com/marcell/pocsag-go/cmd/pocsag@latest
+go install github.com/sqpp/pocsag-golang/cmd/pocsag@latest
 
 # Install decoder
-go install github.com/marcell/pocsag-go/cmd/pocsag-decode@latest
+go install github.com/sqpp/pocsag-golang/cmd/pocsag-decode@latest
 ```
 
 Or build from source:
 
 ```bash
-git clone https://github.com/marcell/pocsag-go.git
-cd pocsag-go
+git clone https://github.com/sqpp/pocsag-golang.git
+cd pocsag-golang
 go build ./cmd/pocsag
 go build ./cmd/pocsag-decode
 ```
@@ -78,7 +78,7 @@ package main
 
 import (
     "os"
-    pocsag "github.com/marcell/pocsag-go"
+    pocsag "github.com/sqpp/pocsag-golang"
 )
 
 func main() {
@@ -101,7 +101,7 @@ package main
 import (
     "fmt"
     "os"
-    pocsag "github.com/marcell/pocsag-go"
+    pocsag "github.com/sqpp/pocsag-golang"
 )
 
 func main() {
