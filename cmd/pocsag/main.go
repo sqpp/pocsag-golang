@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -20,6 +21,9 @@ func main() {
 
 	funcCode := flag.Uint("function", pocsag.FuncAlphanumeric, "Message type: 0=numeric, 3=alphanumeric (default: 3)")
 	flag.UintVar(funcCode, "f", pocsag.FuncAlphanumeric, "Message type: 0=numeric, 3=alphanumeric")
+
+	jsonOutput := flag.Bool("json", false, "Output result as JSON")
+	flag.BoolVar(jsonOutput, "j", false, "Output result as JSON")
 
 	flag.Parse()
 
@@ -52,7 +56,28 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Printf("✅ Generated %s\n", *output)
-	fmt.Printf("   Address: %d, Function: %d, Message: %s\n", *address, *funcCode, *message)
-	fmt.Printf("\nTest with: multimon-ng -t wav -a POCSAG1200 %s\n", *output)
+	// Output result
+	if *jsonOutput {
+		result := map[string]interface{}{
+			"success":  true,
+			"output":   *output,
+			"address":  *address,
+			"function": *funcCode,
+			"message":  *message,
+			"type": func() string {
+				if *funcCode == 0 {
+					return "numeric"
+				} else {
+					return "alphanumeric"
+				}
+			}(),
+			"size": len(wavData),
+		}
+		jsonBytes, _ := json.MarshalIndent(result, "", "  ")
+		fmt.Println(string(jsonBytes))
+	} else {
+		fmt.Printf("✅ Generated %s\n", *output)
+		fmt.Printf("   Address: %d, Function: %d, Message: %s\n", *address, *funcCode, *message)
+		fmt.Printf("\nTest with: multimon-ng -t wav -a POCSAG1200 %s\n", *output)
+	}
 }

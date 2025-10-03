@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -11,6 +12,9 @@ import (
 func main() {
 	inputFile := flag.String("input", "", "Input WAV file to decode (required)")
 	flag.StringVar(inputFile, "i", "", "Input WAV file to decode (required) - short form")
+
+	jsonOutput := flag.Bool("json", false, "Output result as JSON")
+	flag.BoolVar(jsonOutput, "j", false, "Output result as JSON")
 
 	flag.Parse()
 
@@ -38,13 +42,46 @@ func main() {
 	}
 
 	if len(messages) == 0 {
-		fmt.Println("No messages found")
+		if *jsonOutput {
+			result := map[string]interface{}{
+				"success":  true,
+				"messages": []interface{}{},
+			}
+			jsonBytes, _ := json.MarshalIndent(result, "", "  ")
+			fmt.Println(string(jsonBytes))
+		} else {
+			fmt.Println("No messages found")
+		}
 		return
 	}
 
-	// Display messages
-	fmt.Println("POCSAG1200: Decoded messages:")
-	for _, msg := range messages {
-		fmt.Println(msg.String())
+	// Output messages
+	if *jsonOutput {
+		jsonMessages := make([]map[string]interface{}, len(messages))
+		for i, msg := range messages {
+			jsonMessages[i] = map[string]interface{}{
+				"address":  msg.Address,
+				"function": msg.Function,
+				"message":  msg.Message,
+				"type": func() string {
+					if msg.IsNumeric {
+						return "numeric"
+					} else {
+						return "alphanumeric"
+					}
+				}(),
+			}
+		}
+		result := map[string]interface{}{
+			"success":  true,
+			"messages": jsonMessages,
+		}
+		jsonBytes, _ := json.MarshalIndent(result, "", "  ")
+		fmt.Println(string(jsonBytes))
+	} else {
+		fmt.Println("POCSAG1200: Decoded messages:")
+		for _, msg := range messages {
+			fmt.Println(msg.String())
+		}
 	}
 }
