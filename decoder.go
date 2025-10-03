@@ -69,7 +69,7 @@ func DecodeFromAudio(wavData []byte) ([]DecodedMessage, error) {
 func DecodeFromBinary(data []byte) ([]DecodedMessage, error) {
 	messages := make([]DecodedMessage, 0)
 
-	// Find frame sync word
+	// Find first frame sync word
 	syncIdx := -1
 	for i := 0; i < len(data)-3; i++ {
 		word := binary.BigEndian.Uint32(data[i:])
@@ -94,17 +94,15 @@ func DecodeFromBinary(data []byte) ([]DecodedMessage, error) {
 		cw := binary.BigEndian.Uint32(data[idx:])
 		idx += 4
 
+		// Check if it's a sync word (start of new batch)
+		if cw == FrameSyncWord {
+			// Continue to next batch without breaking message collection
+			continue
+		}
+
 		if cw == IdleCodeword {
-			if len(messageCodewords) > 0 && currentAddress != 0 {
-				msg := decodeMessage(messageCodewords, currentFunction)
-				messages = append(messages, DecodedMessage{
-					Address:   currentAddress,
-					Function:  currentFunction,
-					Message:   msg,
-					IsNumeric: currentFunction == FuncNumeric,
-				})
-				messageCodewords = make([]uint32, 0)
-			}
+			// Skip idle codewords - they're just padding between or within messages
+			// Don't finalize the message here, as it may continue in the next batch
 			continue
 		}
 
@@ -167,12 +165,12 @@ func decodeNumericFromBits(bits []byte) string {
 			nibble = (nibble << 1) | bits[i+j]
 		}
 		nibble = BitReverse4(nibble)
-		
+
 		// Stop at terminator (0xA = unused nibble)
 		if nibble == 0xA {
 			break
 		}
-		
+
 		char := bcdToChar(nibble)
 		if char != 0 {
 			result = append(result, char)
@@ -209,15 +207,21 @@ func bcdToChar(nibble byte) rune {
 // decodeAlphaFromBits decodes a 7-bit ASCII bitstream
 func decodeAlphaFromBits(bits []byte) string {
 	result := make([]byte, 0)
-	for i := 0; i+6 < len(bits); i += 7 {
+	// Process all available 7-bit groups
+	for i := 0; i <= len(bits)-7; i += 7 {
 		charBits := byte(0)
 		for j := 0; j < 7; j++ {
 			charBits = (charBits << 1) | bits[i+j]
 		}
 		char := BitReverse8(charBits << 1)
 
-		if char == 0x03 || char == 0x00 {
+		// Stop at ETX terminator
+		if char == 0x03 {
 			break
+		}
+		// Skip null bytes but continue (don't break)
+		if char == 0x00 {
+			continue
 		}
 		if char >= 0x20 && char <= 0x7E {
 			result = append(result, char)

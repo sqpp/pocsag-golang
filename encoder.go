@@ -141,7 +141,13 @@ func Ascii7BitEncoder(message string) []byte {
 
 // SplitMessageIntoFrames splits encoded message into codewords - exact port from pocsag.c lines 165-216
 func SplitMessageIntoFrames(encoded7bit []byte) []uint32 {
-	chunks := (len(encoded7bit) / 3) + 1
+	// Calculate actual number of codewords needed
+	// Even codewords consume 2 bytes, odd ones consume 3 bytes
+	// Average: 2.5 bytes per codeword, so need ceil(len / 2.5) codewords
+	chunks := ((len(encoded7bit) * 2) + 4) / 5
+	if chunks == 0 {
+		chunks = 1
+	}
 	batches := make([]uint32, chunks)
 
 	curr := 0
@@ -216,7 +222,8 @@ func CreatePOCSAGPacket(address uint32, message string, function uint8) []byte {
 	messageCWs := SplitMessageIntoFrames(encodedMessage)
 	codewords = append(codewords, messageCWs...)
 
-	// Pad to 16 codewords (1 batch)
+	// Pad to multiple of 16 codewords (full batches)
+	// Each batch needs sync word + 16 codewords
 	for len(codewords)%16 != 0 {
 		codewords = append(codewords, IdleCodeword)
 	}
@@ -225,12 +232,17 @@ func CreatePOCSAGPacket(address uint32, message string, function uint8) []byte {
 	var buf bytes.Buffer
 	buf.Write(preamble)
 
-	// Frame sync
-	writeUint32BE(&buf, FrameSyncWord)
+	// Write batches (each batch has sync word + 16 codewords)
+	numBatches := len(codewords) / 16
+	for batch := 0; batch < numBatches; batch++ {
+		// Frame sync for each batch
+		writeUint32BE(&buf, FrameSyncWord)
 
-	// Codewords
-	for _, cw := range codewords {
-		writeUint32BE(&buf, cw)
+		// Write 16 codewords for this batch
+		for i := 0; i < 16; i++ {
+			cw := codewords[batch*16+i]
+			writeUint32BE(&buf, cw)
+		}
 	}
 
 	return buf.Bytes()
