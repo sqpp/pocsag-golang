@@ -66,12 +66,30 @@ Decode POCSAG messages from WAV files:
 ```bash
 pocsag-decode --input message.wav
 pocsag-decode -i message.wav
+
+# JSON output (for API integration)
+pocsag-decode -i message.wav --json
 ```
 
 **Output example:**
 ```
 POCSAG1200: Decoded messages:
 Address:  123456  Function: 3  ALPHA    Message: HELLO WORLD
+```
+
+**JSON output example:**
+```json
+{
+  "success": true,
+  "messages": [
+    {
+      "address": 123456,
+      "function": 3,
+      "message": "HELLO WORLD",
+      "type": "alphanumeric"
+    }
+  ]
+}
 ```
 
 ## Library Usage
