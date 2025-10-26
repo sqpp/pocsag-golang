@@ -12,6 +12,8 @@ var (
 	GitCommit  = "unknown"
 	Author     = "marcell"
 	ProjectURL = "https://pagercast.com"
+	BuildArch  = "unknown"
+	BuildGoVer = "unknown"
 )
 
 // GetVersionString returns a formatted version string
@@ -31,9 +33,11 @@ Complete Go implementation of POCSAG pager protocol
 Author: %s
 Build Time: %s
 Git Commit: %s
-Architecture: %s/%s
-Go Version: %s
+Build Architecture: %s
+Build Go Version: %s
+Runtime Architecture: %s/%s
+Runtime Go Version: %s
 GitHub: https://github.com/sqpp/pocsag-golang
 Project: PagerCast | %s
-`, Version, Author, BuildTime, GitCommit, runtime.GOOS, runtime.GOARCH, runtime.Version(), ProjectURL)
+`, Version, Author, BuildTime, GitCommit, BuildArch, BuildGoVer, runtime.GOOS, runtime.GOARCH, runtime.Version(), ProjectURL)
 }

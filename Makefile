@@ -4,13 +4,17 @@
 VERSION ?= 2.1.0
 BUILD_TIME := $(shell date -u '+%Y-%m-%d_%H:%M:%S')
 GIT_COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+BUILD_ARCH := $(shell go env GOOS)/$(shell go env GOARCH)
+GO_VERSION := $(shell go version | cut -d' ' -f3)
 
 # Build flags for version information
 LDFLAGS := -X 'github.com/sqpp/pocsag-golang.Version=$(VERSION)' \
            -X 'github.com/sqpp/pocsag-golang.BuildTime=$(BUILD_TIME)' \
            -X 'github.com/sqpp/pocsag-golang.GitCommit=$(GIT_COMMIT)' \
            -X 'github.com/sqpp/pocsag-golang.Author=marcell' \
-           -X 'github.com/sqpp/pocsag-golang.ProjectURL=https://pagercast.com'
+           -X 'github.com/sqpp/pocsag-golang.ProjectURL=https://pagercast.com' \
+           -X 'github.com/sqpp/pocsag-golang.BuildArch=$(BUILD_ARCH)' \
+           -X 'github.com/sqpp/pocsag-golang.BuildGoVer=$(GO_VERSION)'
 
 # Default target
 .PHONY: all
