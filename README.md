@@ -1,4 +1,4 @@
-# POCSAG-GO
+# POCSAG-GO v2.0.0
 
 Complete Go implementation of POCSAG pager protocol with encoder and decoder, directly ported from [pocsag-tool](https://github.com/hazardousfirmware/pocsag-tool).
 
@@ -11,6 +11,7 @@ Complete Go implementation of POCSAG pager protocol with encoder and decoder, di
 - ✅ BCD numeric message encoding (function 0)
 - ✅ 7-bit ASCII alphanumeric encoding (function 3)
 - ✅ WAV audio generation and decoding (48kHz, 512/1200/2400 baud)
+- ✅ **AES-256/AES-128 encryption** - Secure communications
 - ✅ Compatible with PDW and multimon-ng
 - ✅ JSON output support for API integration
 
@@ -56,6 +57,10 @@ pocsag -a 999888 -m "0123456789" -f 0 -b 512 -o numeric.wav
 pocsag --address 123456 --message "FAST MSG" --baud 2400 --output fast.wav
 pocsag -a 123456 -m "FAST MSG" -b 2400 -o fast.wav
 
+# Encrypted message (AES-256)
+pocsag --address 123456 --message "SECRET MESSAGE" --encrypt --key "mysecretkey" --output encrypted.wav
+pocsag -a 123456 -m "SECRET MESSAGE" -e -k "mysecretkey" -o encrypted.wav
+
 # JSON output (for API integration)
 pocsag -a 123456 -m "TEST API" -o test.wav --json
 ```
@@ -67,6 +72,8 @@ pocsag -a 123456 -m "TEST API" -o test.wav --json
 - `--output` / `-o`: Output WAV file (default: `output.wav`)
 - `--function` / `-f`: Message type - `0` for numeric, `3` for alphanumeric (default: `3`)
 - `--baud` / `-b`: Baud rate - `512`, `1200`, or `2400` (default: `1200`)
+- `--encrypt` / `-e`: Enable AES-256 encryption
+- `--key` / `-k`: Encryption key (required if `--encrypt` is used)
 - `--json` / `-j`: Output result as JSON
 
 ### Decoder
@@ -274,6 +281,68 @@ type DecodedMessage struct {
     IsNumeric bool
 }
 ```
+
+## Encryption
+
+POCSAG-GO supports modern encryption standards for secure communications:
+
+### Supported Encryption Methods
+
+- **AES-256**: Military-grade encryption (default)
+- **AES-128**: High-security encryption (alternative)
+- **CRC32 Integrity Verification**: Prevents message tampering
+- **Base64 Encoding**: Ensures POCSAG protocol compatibility
+
+### Security Features
+
+- 🔐 **Password-based key derivation** using SHA256 hashing
+- 🛡️ **Random IV generation** prevents replay attacks
+- ✅ **Message integrity verification** with CRC32 checksums
+- 🔄 **Backward compatibility** with non-encrypted messages
+
+### Encryption Process
+
+```
+Original Message → Add CRC32 → AES-256 Encrypt → Base64 Encode → POCSAG Packet
+```
+
+### Decryption Process
+
+```
+POCSAG Packet → Base64 Decode → AES-256 Decrypt → Verify CRC32 → Original Message
+```
+
+### Usage Examples
+
+```bash
+# Create encrypted message
+pocsag -a 123456 -m "SECRET MESSAGE" -e -k "mysecretkey" -o encrypted.wav
+
+# JSON output shows encryption status
+pocsag -a 123456 -m "SECRET MESSAGE" -e -k "mysecretkey" --json
+```
+
+**JSON Output Example:**
+```json
+{
+  "success": true,
+  "output": "encrypted.wav",
+  "address": 123456,
+  "function": 3,
+  "message": "SECRET MESSAGE",
+  "baud": 1200,
+  "encrypted": true,
+  "type": "alphanumeric",
+  "size": 133164
+}
+```
+
+### Security Notes
+
+- **Key Management**: Use strong, unique keys for each communication group
+- **Key Distribution**: Securely share keys with intended recipients
+- **Compatibility**: Encrypted messages appear as Base64-encoded data in multimon-ng
+- **Performance**: Encryption adds minimal overhead to message processing
 
 ## Testing with PDW / multimon-ng
 
