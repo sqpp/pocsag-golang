@@ -10,7 +10,7 @@ Complete Go implementation of POCSAG pager protocol with encoder and decoder, di
 - ✅ Address encoding/decoding
 - ✅ BCD numeric message encoding (function 0)
 - ✅ 7-bit ASCII alphanumeric encoding (function 3)
-- ✅ WAV audio generation and decoding (48kHz, 1200 baud)
+- ✅ WAV audio generation and decoding (48kHz, 512/1200/2400 baud)
 - ✅ Compatible with PDW and multimon-ng
 - ✅ JSON output support for API integration
 
@@ -48,9 +48,13 @@ Generate POCSAG messages as WAV audio files:
 pocsag --address 123456 --message "HELLO WORLD" --output message.wav
 pocsag -a 123456 -m "HELLO WORLD" -o message.wav
 
-# Numeric message
-pocsag --address 999888 --message "0123456789" --function 0 --output numeric.wav
-pocsag -a 999888 -m "0123456789" -f 0 -o numeric.wav
+# Numeric message (512 baud)
+pocsag --address 999888 --message "0123456789" --function 0 --baud 512 --output numeric.wav
+pocsag -a 999888 -m "0123456789" -f 0 -b 512 -o numeric.wav
+
+# High speed message (2400 baud)
+pocsag --address 123456 --message "FAST MSG" --baud 2400 --output fast.wav
+pocsag -a 123456 -m "FAST MSG" -b 2400 -o fast.wav
 
 # JSON output (for API integration)
 pocsag -a 123456 -m "TEST API" -o test.wav --json
@@ -62,6 +66,7 @@ pocsag -a 123456 -m "TEST API" -o test.wav --json
 - `--message` / `-m`: Message text - **REQUIRED**
 - `--output` / `-o`: Output WAV file (default: `output.wav`)
 - `--function` / `-f`: Message type - `0` for numeric, `3` for alphanumeric (default: `3`)
+- `--baud` / `-b`: Baud rate - `512`, `1200`, or `2400` (default: `1200`)
 - `--json` / `-j`: Output result as JSON
 
 ### Decoder
@@ -71,6 +76,10 @@ Decode POCSAG messages from WAV files:
 ```bash
 pocsag-decode --input message.wav
 pocsag-decode -i message.wav
+
+# Specify baud rate
+pocsag-decode -i message.wav --baud 512
+pocsag-decode -i message.wav -b 2400
 
 # JSON output (for API integration)
 pocsag-decode -i message.wav --json
@@ -93,7 +102,8 @@ Address:  123456  Function: 3  ALPHA    Message: HELLO WORLD
       "message": "HELLO WORLD",
       "type": "alphanumeric"
     }
-  ]
+  ],
+  "baud": 1200
 }
 ```
 
@@ -114,11 +124,17 @@ EOF
 # Generate burst
 pocsag-burst --json messages.json --output burst.wav
 pocsag-burst -j messages.json -o burst.wav
+
+# JSON output
+pocsag-burst -j messages.json --json-output
+pocsag-burst -j messages.json -jo
 ```
 
 **Parameters:**
 - `--json` / `-j`: JSON input file with message array - **REQUIRED**
 - `--output` / `-o`: Output WAV file (default: `burst.wav`)
+- `--baud` / `-b`: Baud rate - `512`, `1200`, or `2400` (default: `1200`)
+- `--json-output` / `-jo`: Output result as JSON
 
 **JSON Format:**
 ```json
@@ -133,6 +149,31 @@ pocsag-burst -j messages.json -o burst.wav
 - `address`: Pager address (RIC)
 - `message`: Message text
 - `function`: `0` for numeric, `3` for alphanumeric
+
+**JSON Output Example:**
+```json
+{
+  "success": true,
+  "output": "burst.wav",
+  "messages": [
+    {
+      "address": 123456,
+      "function": 3,
+      "message": "FIRST MESSAGE",
+      "type": "alphanumeric"
+    },
+    {
+      "address": 789012,
+      "function": 3,
+      "message": "SECOND MESSAGE",
+      "type": "alphanumeric"
+    }
+  ],
+  "baud": 1200,
+  "count": 2,
+  "size": 44844
+}
+```
 
 ## Library Usage
 
@@ -239,6 +280,10 @@ type DecodedMessage struct {
 The generated WAV files are compatible with:
 - **PDW** (Paging Decode for Windows)
 - **multimon-ng** - `multimon-ng -t wav -a POCSAG1200 message.wav`
+- **multimon-ng** - `multimon-ng -t wav -a POCSAG512 message.wav` (512 baud)
+- **multimon-ng** - `multimon-ng -t wav -a POCSAG2400 message.wav` (2400 baud)
+
+**Note:** Our decoder properly handles message padding and strips null characters. Multimon-ng may occasionally display extra null characters for longer messages, but this doesn't affect the actual message content when decoded with our tools.
 
 ## Credits
 

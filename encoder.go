@@ -202,12 +202,24 @@ type MessageInfo struct {
 }
 
 // CreatePOCSAGPacket creates a complete POCSAG packet with a single message
+// Uses default 1200 baud for backward compatibility
 func CreatePOCSAGPacket(address uint32, message string, function uint8) []byte {
 	return CreatePOCSAGBurst([]MessageInfo{{Address: address, Message: message, Function: function}})
 }
 
+// CreatePOCSAGPacketWithBaudRate creates a complete POCSAG packet with a single message and specified baud rate
+func CreatePOCSAGPacketWithBaudRate(address uint32, message string, function uint8, baudRate int) []byte {
+	return CreatePOCSAGBurstWithBaudRate([]MessageInfo{{Address: address, Message: message, Function: function}}, baudRate)
+}
+
 // CreatePOCSAGBurst creates a POCSAG packet with multiple messages (burst mode)
+// Uses default 1200 baud for backward compatibility
 func CreatePOCSAGBurst(messages []MessageInfo) []byte {
+	return CreatePOCSAGBurstWithBaudRate(messages, BaudRate1200)
+}
+
+// CreatePOCSAGBurstWithBaudRate creates a POCSAG packet with multiple messages and specified baud rate
+func CreatePOCSAGBurstWithBaudRate(messages []MessageInfo, baudRate int) []byte {
 	// Generate preamble (alternating 1010...)
 	preamble := make([]byte, PreambleLength/8)
 	for i := range preamble {
@@ -229,7 +241,8 @@ func CreatePOCSAGBurst(messages []MessageInfo) []byte {
 			encodedMessage = NumericBCDEncoder(msg.Message)
 		} else {
 			// Alphanumeric and other functions use 7-bit ASCII
-			encodedMessage = Ascii7BitEncoder(msg.Message + "\x03") // ETX terminator
+			// Don't add ETX terminator - let the decoder handle message termination naturally
+			encodedMessage = Ascii7BitEncoder(msg.Message)
 		}
 
 		messageCWs := SplitMessageIntoFrames(encodedMessage)

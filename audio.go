@@ -7,11 +7,16 @@ import (
 
 const (
 	// Audio constants - from bin2audio.c
-	BaudRate      = 1200
+	BaudRate1200  = 1200
+	BaudRate512   = 512
+	BaudRate2400  = 2400
 	SampleRate    = 48000
 	BitsPerSample = 16
 	NumChannels   = 1
 )
+
+// BaudRate is the default baud rate for backward compatibility
+const BaudRate = BaudRate1200
 
 var (
 	SymbolHigh = int16(-12287) // bit 1 (0xD001 as signed)
@@ -19,8 +24,14 @@ var (
 )
 
 // ConvertToAudio converts POCSAG bytes to WAV audio - exact port from bin2audio.c
+// Uses default 1200 baud for backward compatibility
 func ConvertToAudio(pocsagData []byte) []byte {
-	samplesPerSymbol := SampleRate / BaudRate
+	return ConvertToAudioWithBaudRate(pocsagData, BaudRate1200)
+}
+
+// ConvertToAudioWithBaudRate converts POCSAG bytes to WAV audio with specified baud rate
+func ConvertToAudioWithBaudRate(pocsagData []byte, baudRate int) []byte {
+	samplesPerSymbol := SampleRate / baudRate
 
 	// Calculate total samples
 	numBits := len(pocsagData) * 8

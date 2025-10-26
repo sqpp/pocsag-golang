@@ -15,7 +15,13 @@ type DecodedMessage struct {
 }
 
 // DecodeFromAudio decodes POCSAG from WAV audio data
+// Uses default 1200 baud for backward compatibility
 func DecodeFromAudio(wavData []byte) ([]DecodedMessage, error) {
+	return DecodeFromAudioWithBaudRate(wavData, BaudRate1200)
+}
+
+// DecodeFromAudioWithBaudRate decodes POCSAG from WAV audio data with specified baud rate
+func DecodeFromAudioWithBaudRate(wavData []byte, baudRate int) ([]DecodedMessage, error) {
 	// Skip WAV header (44 bytes)
 	if len(wavData) < 44 {
 		return nil, fmt.Errorf("invalid WAV file: too short")
@@ -28,8 +34,8 @@ func DecodeFromAudio(wavData []byte) ([]DecodedMessage, error) {
 		samples = append(samples, sample)
 	}
 
-	// Demodulate: 40 samples per bit @ 48kHz/1200 baud
-	samplesPerBit := 40
+	// Demodulate: calculate samples per bit based on baud rate
+	samplesPerBit := SampleRate / baudRate
 	bits := make([]byte, 0)
 
 	for i := 0; i < len(samples); i += samplesPerBit {
@@ -215,16 +221,20 @@ func decodeAlphaFromBits(bits []byte) string {
 		}
 		char := BitReverse8(charBits << 1)
 
-		// Stop at ETX terminator
+		// Stop at ETX terminator (if present)
 		if char == 0x03 {
 			break
 		}
-		// Skip null bytes but continue (don't break)
+		// Stop at null bytes (padding) - this is the key fix
 		if char == 0x00 {
-			continue
+			break
 		}
+		// Only include printable ASCII characters
 		if char >= 0x20 && char <= 0x7E {
 			result = append(result, char)
+		} else {
+			// Stop at any non-printable character (except ETX which we handle above)
+			break
 		}
 	}
 	return string(result)
