@@ -20,12 +20,31 @@ func DecodeFromAudio(wavData []byte) ([]DecodedMessage, error) {
 	return DecodeFromAudioWithBaudRate(wavData, BaudRate1200)
 }
 
+// DecodeFromAudioWithDecryption decodes POCSAG from WAV audio data with decryption
+func DecodeFromAudioWithDecryption(wavData []byte, baudRate int, encryption EncryptionConfig) ([]DecodedMessage, error) {
+	// First decode the audio normally
+	messages, err := DecodeFromAudioWithBaudRate(wavData, baudRate)
+	if err != nil {
+		return nil, err
+	}
+
+	// Decrypt messages if encryption is configured
+	if encryption.Method != EncryptionNone {
+		for i := range messages {
+			decryptedMessage, err := DecryptMessage(messages[i].Message, encryption)
+			if err != nil {
+				// If decryption fails, keep the original message (might not be encrypted)
+				continue
+			}
+			messages[i].Message = decryptedMessage
+		}
+	}
+
+	return messages, nil
+}
+
 // DecodeFromAudioWithBaudRate decodes POCSAG from WAV audio data with specified baud rate
 func DecodeFromAudioWithBaudRate(wavData []byte, baudRate int) ([]DecodedMessage, error) {
-	// Skip WAV header (44 bytes)
-	if len(wavData) < 44 {
-		return nil, fmt.Errorf("invalid WAV file: too short")
-	}
 
 	// Convert audio samples to bits
 	samples := make([]int16, 0)

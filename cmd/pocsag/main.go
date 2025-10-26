@@ -25,6 +25,12 @@ func main() {
 	baudRate := flag.Int("baud", pocsag.BaudRate1200, "Baud rate: 512, 1200, or 2400 (default: 1200)")
 	flag.IntVar(baudRate, "b", pocsag.BaudRate1200, "Baud rate: 512, 1200, or 2400")
 
+	encrypt := flag.Bool("encrypt", false, "Enable AES-256 encryption")
+	flag.BoolVar(encrypt, "e", false, "Enable AES-256 encryption")
+
+	key := flag.String("key", "", "Encryption key (required if --encrypt is used)")
+	flag.StringVar(key, "k", "", "Encryption key (required if --encrypt is used)")
+
 	jsonOutput := flag.Bool("json", false, "Output result as JSON")
 	flag.BoolVar(jsonOutput, "j", false, "Output result as JSON")
 
@@ -48,7 +54,18 @@ func main() {
 		fmt.Fprintln(os.Stderr, "  # High speed message (2400 baud):")
 		fmt.Fprintln(os.Stderr, "  pocsag --address 123456 --message \"FAST MSG\" --baud 2400 --output fast.wav")
 		fmt.Fprintln(os.Stderr, "")
+		fmt.Fprintln(os.Stderr, "  # Encrypted message:")
+		fmt.Fprintln(os.Stderr, "  pocsag --address 123456 --message \"SECRET MSG\" --encrypt --key \"mysecretkey\" --output encrypted.wav")
+		fmt.Fprintln(os.Stderr, "  pocsag -a 123456 -m \"SECRET MSG\" -e -k \"mysecretkey\" -o encrypted.wav")
+		fmt.Fprintln(os.Stderr, "")
 		flag.Usage()
+		os.Exit(1)
+	}
+
+	// Validate encryption parameters
+	if *encrypt && *key == "" {
+		fmt.Fprintln(os.Stderr, "Error: Encryption key is required when --encrypt is used")
+		fmt.Fprintln(os.Stderr, "Use --key or -k to specify the encryption key")
 		os.Exit(1)
 	}
 
@@ -59,13 +76,30 @@ func main() {
 	}
 
 	// Create POCSAG packet
-	packet := pocsag.CreatePOCSAGPacketWithBaudRate(uint32(*address), *message, uint8(*funcCode), *baudRate)
+	var packet []byte
+	var err error
+
+	if *encrypt {
+		// Create encryption config
+		encryptionConfig := pocsag.EncryptionConfig{
+			Method: pocsag.EncryptionAES256,
+			Key:    pocsag.KeyFromPassword(*key, 32), // 32 bytes for AES-256
+		}
+
+		packet, err = pocsag.CreatePOCSAGPacketWithEncryption(uint32(*address), *message, uint8(*funcCode), *baudRate, encryptionConfig)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error creating encrypted packet: %v\n", err)
+			os.Exit(1)
+		}
+	} else {
+		packet = pocsag.CreatePOCSAGPacketWithBaudRate(uint32(*address), *message, uint8(*funcCode), *baudRate)
+	}
 
 	// Convert to audio
 	wavData := pocsag.ConvertToAudioWithBaudRate(packet, *baudRate)
 
 	// Write to file
-	err := os.WriteFile(*output, wavData, 0644)
+	err = os.WriteFile(*output, wavData, 0644)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error writing file: %v\n", err)
 		os.Exit(1)
@@ -74,12 +108,13 @@ func main() {
 	// Output result
 	if *jsonOutput {
 		result := map[string]interface{}{
-			"success":  true,
-			"output":   *output,
-			"address":  *address,
-			"function": *funcCode,
-			"message":  *message,
-			"baud":     *baudRate,
+			"success":   true,
+			"output":    *output,
+			"address":   *address,
+			"function":  *funcCode,
+			"message":   *message,
+			"baud":      *baudRate,
+			"encrypted": *encrypt,
 			"type": func() string {
 				if *funcCode == 0 {
 					return "numeric"
@@ -92,7 +127,11 @@ func main() {
 		jsonBytes, _ := json.MarshalIndent(result, "", "  ")
 		fmt.Println(string(jsonBytes))
 	} else {
-		fmt.Printf("✅ Generated %s\n", *output)
+		encryptionStatus := ""
+		if *encrypt {
+			encryptionStatus = " (encrypted)"
+		}
+		fmt.Printf("✅ Generated %s%s\n", *output, encryptionStatus)
 		fmt.Printf("   Address: %d, Function: %d, Baud: %d, Message: %s\n", *address, *funcCode, *baudRate, *message)
 
 		// Show appropriate multimon-ng command based on baud rate
@@ -106,5 +145,8 @@ func main() {
 			multimonCmd = fmt.Sprintf("multimon-ng -t wav -a POCSAG2400 %s", *output)
 		}
 		fmt.Printf("\nTest with: %s\n", multimonCmd)
+		if *encrypt {
+			fmt.Printf("Note: This message is encrypted. Use pocsag-decode with --key to decrypt.\n")
+		}
 	}
 }

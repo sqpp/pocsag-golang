@@ -2,6 +2,7 @@ package pocsag
 
 import (
 	"bytes"
+	"fmt"
 )
 
 const (
@@ -216,6 +217,36 @@ func CreatePOCSAGPacketWithBaudRate(address uint32, message string, function uin
 // Uses default 1200 baud for backward compatibility
 func CreatePOCSAGBurst(messages []MessageInfo) []byte {
 	return CreatePOCSAGBurstWithBaudRate(messages, BaudRate1200)
+}
+
+// CreatePOCSAGPacketWithEncryption creates a complete POCSAG packet with encryption
+func CreatePOCSAGPacketWithEncryption(address uint32, message string, function uint8, baudRate int, encryption EncryptionConfig) ([]byte, error) {
+	// Encrypt message if encryption is configured
+	encryptedMessage, err := EncryptMessage(message, encryption)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encrypt message: %v", err)
+	}
+
+	return CreatePOCSAGPacketWithBaudRate(address, encryptedMessage, function, baudRate), nil
+}
+
+// CreatePOCSAGBurstWithEncryption creates a POCSAG packet with multiple messages and encryption
+func CreatePOCSAGBurstWithEncryption(messages []MessageInfo, baudRate int, encryption EncryptionConfig) ([]byte, error) {
+	// Encrypt all messages
+	encryptedMessages := make([]MessageInfo, len(messages))
+	for i, msg := range messages {
+		encryptedMessage, err := EncryptMessage(msg.Message, encryption)
+		if err != nil {
+			return nil, fmt.Errorf("failed to encrypt message %d: %v", i, err)
+		}
+		encryptedMessages[i] = MessageInfo{
+			Address:  msg.Address,
+			Message:  encryptedMessage,
+			Function: msg.Function,
+		}
+	}
+
+	return CreatePOCSAGBurstWithBaudRate(encryptedMessages, baudRate), nil
 }
 
 // CreatePOCSAGBurstWithBaudRate creates a POCSAG packet with multiple messages and specified baud rate
