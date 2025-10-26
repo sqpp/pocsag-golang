@@ -34,7 +34,16 @@ func main() {
 	jsonOutput := flag.Bool("json", false, "Output result as JSON")
 	flag.BoolVar(jsonOutput, "j", false, "Output result as JSON")
 
+	version := flag.Bool("version", false, "Show version information")
+	flag.BoolVar(version, "v", false, "Show version information")
+
 	flag.Parse()
+
+	// Handle version flag
+	if *version {
+		fmt.Println(pocsag.GetFullVersionInfo())
+		os.Exit(0)
+	}
 
 	// Check required parameters
 	if *address == 0 || *message == "" {

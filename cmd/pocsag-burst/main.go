@@ -22,7 +22,16 @@ func main() {
 	jsonOutput := flag.Bool("json-output", false, "Output result as JSON")
 	flag.BoolVar(jsonOutput, "jo", false, "Output result as JSON - short form")
 
+	version := flag.Bool("version", false, "Show version information")
+	flag.BoolVar(version, "v", false, "Show version information")
+
 	flag.Parse()
+
+	// Handle version flag
+	if *version {
+		fmt.Println(pocsag.GetFullVersionInfo())
+		os.Exit(0)
+	}
 
 	if *jsonInput == "" {
 		fmt.Fprintln(os.Stderr, "Error: JSON input file required")

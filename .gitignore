@@ -7,6 +7,7 @@
 pocsag
 pocsag-decode
 pocsag-burst
+bin
 
 # Test binary, built with `go test -c`
 *.test
