@@ -5,6 +5,7 @@
 *.so
 *.dylib
 pocsag
+luau
 pocsag-decode
 pocsag-burst
 bin
