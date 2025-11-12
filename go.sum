@@ -1,2 +1,4 @@
 github.com/sqpp/pocsag-golang v1.5.0 h1:+CY3JlBQNm3Xp36RQaH+AUy7GbnMth9h95yM7ns9c2w=
 github.com/sqpp/pocsag-golang v1.5.0/go.mod h1:3RBXVNcPqkE0h98iGk9kmO53EcKmFahZU51dAFgbsn8=
+gonum.org/v1/gonum v0.16.0 h1:5+ul4Swaf3ESvrOnidPp4GZbzf0mxVQpDCYUQE7OJfk=
+gonum.org/v1/gonum v0.16.0/go.mod h1:fef3am4MQ93R2HHpKnLk4/Tbh/s0+wqD5nfa6Pnwy4E=
