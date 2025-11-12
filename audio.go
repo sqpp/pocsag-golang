@@ -72,7 +72,7 @@ func createWAVFile(samples []int16) []byte {
 	dataSize := uint32(len(samples) * 2)
 	fileSize := 36 + dataSize
 	byteRate := uint32(SampleRate * NumChannels * BitsPerSample / 8)
-	blockAlign := uint16(16) // Match bin2audio.c CHUNK_SIZE (not technically correct but PDW expects this)
+	blockAlign := uint16(NumChannels * BitsPerSample / 8) // Correct block align for Firefox compatibility
 
 	// RIFF header
 	buf.WriteString("RIFF")
@@ -91,7 +91,7 @@ func createWAVFile(samples []int16) []byte {
 
 	// data chunk
 	buf.WriteString("data")
-	binary.Write(&buf, binary.LittleEndian, uint32(0)) // bin2audio.c writes 0 here (placeholder)
+	binary.Write(&buf, binary.LittleEndian, dataSize) // Write actual data size for Firefox compatibility
 
 	// Write samples
 	for _, sample := range samples {

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	pocsag "github.com/sqpp/pocsag-golang"
+	pocsag "github.com/sqpp/pocsag-golang/v2"
 )
 
 func main() {
