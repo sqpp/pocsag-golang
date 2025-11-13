@@ -66,11 +66,12 @@ func GenerateWaterfall(samples []int16, config WaterfallConfig) (image.Image, er
 	// Create output image
 	img := image.NewRGBA(image.Rect(0, 0, config.Width, config.Height))
 
-	// First pass: collect all magnitudes to find global min/max for normalization
-	allMagnitudes := make([][]float64, 0, numWindows)
-	globalMin := math.Inf(1)
-	globalMax := math.Inf(-1)
+	// Define dB range for display (typical for spectrograms)
+	const minDB = -80.0 // Noise floor
+	const maxDB = -10.0 // Peak signals
+	const dbRange = maxDB - minDB
 
+	// Process each time window and draw directly
 	for windowIdx := 0; windowIdx < numWindows; windowIdx++ {
 		startIdx := windowIdx * stepSize
 		endIdx := startIdx + config.FFTSize
@@ -88,56 +89,22 @@ func GenerateWaterfall(samples []int16, config WaterfallConfig) (image.Image, er
 		// Perform FFT
 		coeffs := fft.Coefficients(nil, window)
 
-		// Calculate magnitude spectrum
-		magnitudes := make([]float64, numBins)
-		for i := 0; i < numBins; i++ {
-			binIdx := minBin + i
-			mag := cmplx.Abs(coeffs[binIdx])
-			// Convert to dB scale
-			if mag > 1e-10 {
-				magnitudes[i] = 20 * math.Log10(mag)
-			} else {
-				magnitudes[i] = -100 // Very low value for silence
-			}
-			if magnitudes[i] > globalMax {
-				globalMax = magnitudes[i]
-			}
-			if magnitudes[i] < globalMin {
-				globalMin = magnitudes[i]
-			}
-		}
-		allMagnitudes = append(allMagnitudes, magnitudes)
-	}
-
-	// Ensure we have a valid range
-	if globalMax <= globalMin {
-		globalMax = globalMin + 1
-	}
-
-	// Second pass: draw the waterfall with proper normalization
-	// Use a dynamic range of 60 dB for better contrast
-	dynamicRange := 60.0
-	threshold := globalMax - dynamicRange
-
-	for windowIdx, magnitudes := range allMagnitudes {
 		// Calculate X position - distribute evenly across width
-		x := windowIdx * config.Width / len(allMagnitudes)
+		x := windowIdx * config.Width / numWindows
 		if x >= config.Width {
 			x = config.Width - 1
 		}
 
-		for freqIdx := 0; freqIdx < numBins; freqIdx++ {
-			// Y axis: low frequencies at bottom, high at top
-			y := config.Height - 1 - (freqIdx * config.Height / numBins)
-			if y < 0 {
-				y = 0
-			}
-			if y >= config.Height {
-				y = config.Height - 1
-			}
+		// Process each frequency bin
+		for i := 0; i < numBins; i++ {
+			binIdx := minBin + i
 
-			// Normalize magnitude using dynamic range
-			normalized := (magnitudes[freqIdx] - threshold) / dynamicRange
+			// Calculate power (magnitude squared)
+			mag := cmplx.Abs(coeffs[binIdx])
+			powerDB := 10.0 * math.Log10(mag*mag+1e-10)
+
+			// Normalize to 0-1 range using fixed dB scale
+			normalized := (powerDB - minDB) / dbRange
 			if normalized < 0 {
 				normalized = 0
 			}
@@ -145,7 +112,16 @@ func GenerateWaterfall(samples []int16, config WaterfallConfig) (image.Image, er
 				normalized = 1
 			}
 
-			// Apply color map
+			// Y axis: low frequencies at bottom, high at top
+			y := config.Height - 1 - (i * config.Height / numBins)
+			if y < 0 {
+				y = 0
+			}
+			if y >= config.Height {
+				y = config.Height - 1
+			}
+
+			// Apply smooth color map
 			c := getWaterfallColor(normalized)
 			img.Set(x, y, c)
 		}
@@ -155,46 +131,61 @@ func GenerateWaterfall(samples []int16, config WaterfallConfig) (image.Image, er
 }
 
 // getWaterfallColor returns a color based on intensity (0.0 to 1.0)
-// Uses a dark blue background with bright cyan/yellow/white for signals
+// Implements a smooth, continuous colormap: dark blue -> blue -> cyan -> green -> yellow -> red -> white
 func getWaterfallColor(intensity float64) color.Color {
-	if intensity < 0.1 {
-		// Very dark blue background (noise floor)
-		return color.RGBA{0, 0, 15, 255}
-	} else if intensity < 0.3 {
-		// Dark blue
-		t := (intensity - 0.1) / 0.2
-		r := uint8(0)
-		g := uint8(0)
-		b := uint8(15 + t*50)
-		return color.RGBA{r, g, b, 255}
-	} else if intensity < 0.5 {
-		// Blue to bright blue
-		t := (intensity - 0.3) / 0.2
-		r := uint8(0)
-		g := uint8(t * 80)
-		b := uint8(65 + t*135)
-		return color.RGBA{r, g, b, 255}
-	} else if intensity < 0.7 {
-		// Bright blue to cyan
-		t := (intensity - 0.5) / 0.2
-		r := uint8(0)
-		g := uint8(80 + t*175)
-		b := uint8(200 + t*55)
-		return color.RGBA{r, g, b, 255}
-	} else if intensity < 0.85 {
-		// Cyan to yellow/green
-		t := (intensity - 0.7) / 0.15
-		r := uint8(t * 255)
-		g := uint8(255)
-		b := uint8(255 - t*200)
-		return color.RGBA{r, g, b, 255}
+	// Clamp intensity
+	if intensity < 0 {
+		intensity = 0
+	}
+	if intensity > 1 {
+		intensity = 1
+	}
+
+	var r, g, b float64
+
+	if intensity < 0.2 {
+		// Dark blue to blue (0.0 - 0.2)
+		t := intensity / 0.2
+		r = 0
+		g = 0
+		b = 0.1 + 0.4*t // 0.1 -> 0.5
+	} else if intensity < 0.4 {
+		// Blue to cyan (0.2 - 0.4)
+		t := (intensity - 0.2) / 0.2
+		r = 0
+		g = 0.5 * t     // 0 -> 0.5
+		b = 0.5 + 0.5*t // 0.5 -> 1.0
+	} else if intensity < 0.6 {
+		// Cyan to green (0.4 - 0.6)
+		t := (intensity - 0.4) / 0.2
+		r = 0
+		g = 0.5 + 0.5*t // 0.5 -> 1.0
+		b = 1.0 - 0.5*t // 1.0 -> 0.5
+	} else if intensity < 0.8 {
+		// Green to yellow (0.6 - 0.8)
+		t := (intensity - 0.6) / 0.2
+		r = t           // 0 -> 1.0
+		g = 1.0         // stays at 1.0
+		b = 0.5 - 0.5*t // 0.5 -> 0
+	} else if intensity < 0.9 {
+		// Yellow to red (0.8 - 0.9)
+		t := (intensity - 0.8) / 0.1
+		r = 1.0         // stays at 1.0
+		g = 1.0 - 0.5*t // 1.0 -> 0.5
+		b = 0
 	} else {
-		// Yellow to white (strongest signals)
-		t := (intensity - 0.85) / 0.15
-		r := uint8(255)
-		g := uint8(255)
-		b := uint8(55 + t*200)
-		return color.RGBA{r, g, b, 255}
+		// Red to white (0.9 - 1.0)
+		t := (intensity - 0.9) / 0.1
+		r = 1.0
+		g = 0.5 + 0.5*t // 0.5 -> 1.0
+		b = t           // 0 -> 1.0
+	}
+
+	return color.RGBA{
+		R: uint8(r * 255),
+		G: uint8(g * 255),
+		B: uint8(b * 255),
+		A: 255,
 	}
 }
 
