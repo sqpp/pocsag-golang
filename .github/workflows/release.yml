@@ -7,11 +7,8 @@ on:
 
 jobs:
   build:
-    name: Build and Release
+    name: Build
     runs-on: ubuntu-latest
-    
-    permissions:
-      contents: write  # Required to create releases
     
     strategy:
       matrix:
@@ -56,12 +53,34 @@ jobs:
           tar -czf "pocsag-golang-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz" *
         fi
     
-    - name: Upload binaries to release
-      uses: softprops/action-gh-release@v1
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
       with:
-        files: |
+        name: binaries-${{ matrix.goos }}-${{ matrix.goarch }}
+        path: |
           dist/*.zip
           dist/*.tar.gz
+        retention-days: 1
+  
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: dist
+        pattern: binaries-*
+        merge-multiple: true
+    
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: dist/*
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
