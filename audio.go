@@ -3,6 +3,7 @@ package pocsag
 import (
 	"bytes"
 	"encoding/binary"
+	"math"
 )
 
 const (
@@ -99,4 +100,78 @@ func createWAVFile(samples []int16) []byte {
 	}
 
 	return buf.Bytes()
+}
+
+// GenerateFSKSamples generates IQ samples from POCSAG bytes for SDR-style waterfall
+// Returns interleaved I/Q samples: [I0, Q0, I1, Q1, ...]
+func GenerateFSKSamples(pocsagData []byte, baudRate int) []int16 {
+	samplesPerBit := SampleRate / baudRate
+	numBits := len(pocsagData) * 8
+	numSamples := numBits * samplesPerBit
+
+	// Interleaved IQ: 2 values per sample
+	samples := make([]int16, numSamples*2)
+
+	// RF simulation parameters
+	const carrierFreq = 12000.0   // Center carrier at 12 kHz
+	const deviation = 4500.0      // FSK deviation (±4.5 kHz for POCSAG)
+	const signalAmplitude = 15000 // Strong signal
+	const noiseAmplitude = 2000   // RF noise floor (MUST be visible as blue background)
+
+	carrierPhase := 0.0
+	noisePhase1 := 0.0
+	noisePhase2 := 0.0
+
+	// FIRST PASS: Generate RF noise floor for ALL samples (creates blue background everywhere)
+	for i := 0; i < numSamples; i++ {
+		// Wideband RF noise on both I and Q channels
+		noisePhase1 += 0.123456
+		noisePhase2 += 0.789012
+
+		noiseI := noiseAmplitude * math.Sin(noisePhase1*123.456)
+		noiseQ := noiseAmplitude * math.Cos(noisePhase2*456.789)
+
+		samples[i*2] = int16(noiseI)   // I noise
+		samples[i*2+1] = int16(noiseQ) // Q noise
+	}
+
+	// SECOND PASS: Add FSK signal ON TOP of noise floor (creates bright signal)
+	for byteIdx, b := range pocsagData {
+		// Process each bit (MSB first)
+		for bitPos := 7; bitPos >= 0; bitPos-- {
+			bit := (b >> bitPos) & 1
+
+			// Frequency deviation based on bit value
+			var freqOffset float64
+			if bit == 1 {
+				freqOffset = deviation // +4.5 kHz
+			} else {
+				freqOffset = -deviation // -4.5 kHz
+			}
+
+			// Generate IQ samples for this bit and ADD to existing noise
+			for j := 0; j < samplesPerBit; j++ {
+				sampleIdx := ((byteIdx*8+(7-bitPos))*samplesPerBit + j) * 2
+
+				// Instantaneous frequency
+				instantFreq := carrierFreq + freqOffset
+				carrierPhase += 2.0 * math.Pi * instantFreq / float64(SampleRate)
+
+				// Keep phase wrapped
+				for carrierPhase > 2.0*math.Pi {
+					carrierPhase -= 2.0 * math.Pi
+				}
+
+				// Generate FSK signal I and Q components
+				signalI := signalAmplitude * math.Cos(carrierPhase)
+				signalQ := signalAmplitude * math.Sin(carrierPhase)
+
+				// ADD signal to existing noise (bright signal on blue background)
+				samples[sampleIdx] += int16(signalI)   // Add to I
+				samples[sampleIdx+1] += int16(signalQ) // Add to Q
+			}
+		}
+	}
+
+	return samples
 }

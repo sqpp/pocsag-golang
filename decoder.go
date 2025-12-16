@@ -277,3 +277,198 @@ func DecodeReader(r io.Reader) ([]DecodedMessage, error) {
 	}
 	return DecodeFromAudio(data)
 }
+
+// DecodeFromLiveStreamWithDecryption decodes POCSAG from continuous audio stream
+// This function scans the ENTIRE audio buffer for ALL POCSAG transmissions
+// Perfect for real-time radio decoding where signals can appear anywhere in the stream
+func DecodeFromLiveStreamWithDecryption(wavData []byte, baudRate int, encryption EncryptionConfig) ([]DecodedMessage, error) {
+	fmt.Printf("[LiveDecode] Starting decode: WAV size=%d bytes, baudRate=%d\n", len(wavData), baudRate)
+
+	// Convert audio samples to bits
+	samples := make([]int16, 0)
+	for i := 44; i < len(wavData)-1; i += 2 {
+		sample := int16(binary.LittleEndian.Uint16(wavData[i:]))
+		samples = append(samples, sample)
+	}
+
+	fmt.Printf("[LiveDecode] Extracted %d audio samples\n", len(samples))
+
+	// Demodulate: calculate samples per bit based on baud rate
+	samplesPerBit := SampleRate / baudRate
+	bits := make([]byte, 0)
+
+	for i := 0; i < len(samples); i += samplesPerBit {
+		if i+samplesPerBit > len(samples) {
+			break
+		}
+
+		// Average samples to determine bit value
+		sum := int32(0)
+		for j := 0; j < samplesPerBit; j++ {
+			sum += int32(samples[i+j])
+		}
+		avg := sum / int32(samplesPerBit)
+
+		// Negative = 1, Positive = 0
+		if avg < 0 {
+			bits = append(bits, 1)
+		} else {
+			bits = append(bits, 0)
+		}
+	}
+
+	fmt.Printf("[LiveDecode] Demodulated to %d bits (samplesPerBit=%d)\n", len(bits), samplesPerBit)
+
+	// Convert bits to bytes
+	pocsagData := make([]byte, 0)
+	for i := 0; i < len(bits)-7; i += 8 {
+		b := byte(0)
+		for j := 0; j < 8; j++ {
+			b = (b << 1) | bits[i+j]
+		}
+		pocsagData = append(pocsagData, b)
+	}
+
+	fmt.Printf("[LiveDecode] Converted to %d bytes of POCSAG data\n", len(pocsagData))
+
+	// Show first 64 bytes in hex for debugging
+	if len(pocsagData) > 64 {
+		fmt.Printf("[LiveDecode] First 64 bytes (hex): %x\n", pocsagData[:64])
+	}
+
+	// Scan for ALL frame sync words in the entire buffer
+	return DecodeFromBinaryLiveStream(pocsagData, encryption)
+}
+
+// DecodeFromBinaryLiveStream scans the ENTIRE binary buffer for ALL POCSAG transmissions
+// Unlike DecodeFromBinary which stops at the first sync word, this finds ALL signals
+func DecodeFromBinaryLiveStream(data []byte, encryption EncryptionConfig) ([]DecodedMessage, error) {
+	allMessages := make([]DecodedMessage, 0)
+	syncWordsFound := 0
+
+	fmt.Printf("[LiveDecode] Scanning %d bytes for POCSAG sync words...\n", len(data))
+
+	// Scan through the entire buffer looking for ALL frame sync words
+	for searchStart := 0; searchStart < len(data)-3; searchStart++ {
+		// Find next frame sync word
+		syncIdx := -1
+		for i := searchStart; i < len(data)-3; i++ {
+			word := binary.BigEndian.Uint32(data[i:])
+			if word == FrameSyncWord {
+				syncIdx = i
+				break
+			}
+		}
+
+		// No more sync words found
+		if syncIdx == -1 {
+			break
+		}
+
+		syncWordsFound++
+		fmt.Printf("[LiveDecode] Found sync word #%d at byte offset %d\n", syncWordsFound, syncIdx)
+
+		// Decode this transmission starting from the sync word
+		messages := decodeSingleTransmission(data, syncIdx)
+		fmt.Printf("[LiveDecode] Decoded %d messages from this transmission\n", len(messages))
+
+		// Decrypt messages if encryption is configured
+		if encryption.Method != EncryptionNone && len(encryption.Key) > 0 {
+			for i := range messages {
+				decryptedMessage, err := DecryptMessage(messages[i].Message, encryption)
+				if err != nil {
+					// If decryption fails, keep the original message
+					continue
+				}
+				messages[i].Message = decryptedMessage
+			}
+		}
+
+		allMessages = append(allMessages, messages...)
+
+		// Move search position forward past this sync word to find the next one
+		searchStart = syncIdx + 4
+	}
+
+	fmt.Printf("[LiveDecode] Total: found %d sync words, decoded %d messages\n", syncWordsFound, len(allMessages))
+
+	// If no messages found at all, return error
+	if len(allMessages) == 0 {
+		return nil, fmt.Errorf("frame sync word not found")
+	}
+
+	return allMessages, nil
+}
+
+// decodeSingleTransmission decodes one POCSAG transmission starting from a sync word
+func decodeSingleTransmission(data []byte, syncIdx int) []DecodedMessage {
+	messages := make([]DecodedMessage, 0)
+
+	// Start reading codewords after sync
+	idx := syncIdx + 4
+
+	var currentAddress uint32
+	var currentFunction uint8
+	messageCodewords := make([]uint32, 0)
+
+	// Read until we hit another sync word or run out of data
+	// Limit to reasonable transmission length (e.g., 1000 codewords = ~4KB)
+	maxCodewords := 1000
+	codewordCount := 0
+
+	for idx+3 < len(data) && codewordCount < maxCodewords {
+		cw := binary.BigEndian.Uint32(data[idx:])
+		idx += 4
+		codewordCount++
+
+		// Check if it's a sync word (start of NEW transmission)
+		if cw == FrameSyncWord {
+			// Stop processing this transmission, we've hit the next one
+			break
+		}
+
+		if cw == IdleCodeword {
+			// Skip idle codewords - they're just padding
+			continue
+		}
+
+		// Check if it's an address codeword (bit 31 = 0)
+		isAddress := (cw & (1 << 31)) == 0
+
+		if isAddress {
+			// If we have a pending message, process it first
+			if len(messageCodewords) > 0 && currentAddress != 0 {
+				msg := decodeMessage(messageCodewords, currentFunction)
+				messages = append(messages, DecodedMessage{
+					Address:   currentAddress,
+					Function:  currentFunction,
+					Message:   msg,
+					IsNumeric: currentFunction == FuncNumeric,
+				})
+			}
+			messageCodewords = make([]uint32, 0) // Reset for new address
+
+			// Decode the new address
+			addrData := (cw >> 11) & 0x1FFFFF
+			currentFunction = uint8(addrData & 0x3)
+			currentAddress = ((addrData >> 2) & 0x7FFFF) << 3
+		} else { // Is Message
+			if currentAddress != 0 { // Only collect message parts if we have an address
+				messageCodewords = append(messageCodewords, cw)
+			}
+		}
+	}
+
+	// Process any leftover message at the end
+	if len(messageCodewords) > 0 && currentAddress != 0 {
+		msg := decodeMessage(messageCodewords, currentFunction)
+		messages = append(messages, DecodedMessage{
+			Address:   currentAddress,
+			Function:  currentFunction,
+			Message:   msg,
+			IsNumeric: currentFunction == FuncNumeric,
+		})
+	}
+
+	return messages
+}
