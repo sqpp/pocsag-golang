@@ -27,10 +27,13 @@ func BitReverse8(b byte) byte {
 }
 
 // EncodeAddress creates an address codeword - exact port from pocsag.c lines 104-120
+// The address is the 21-bit RIC/capcode (pager identity). Only 18 MSBs are transmitted
+// in the codeword; the 3 LSBs determine frame position (address % 8) and must be used
+// when placing the codeword in the batch. Do not normalize the address.
 func EncodeAddress(address uint32, function uint8) uint32 {
 	addr := address
-	addr >>= 3                   // divide by 8
-	addr &= 0x0007FFFF           // mask to 19 bits
+	addr >>= 3                   // 18 MSBs for codeword (21-bit identity -> 18 transmitted bits)
+	addr &= 0x0007FFFF           // mask to 19 bits (effectively 18 after shift)
 	addr <<= 2                   // shift left by 2
 	addr |= uint32(function & 3) // add function bits
 	addr <<= 11                  // shift to bits 11-31
@@ -249,60 +252,69 @@ func CreatePOCSAGBurstWithEncryption(messages []MessageInfo, baudRate int, encry
 	return CreatePOCSAGBurstWithBaudRate(encryptedMessages, baudRate), nil
 }
 
-// CreatePOCSAGBurstWithBaudRate creates a POCSAG packet with multiple messages and specified baud rate
+// CreatePOCSAGBurstWithBaudRate creates a POCSAG packet with multiple messages and specified baud rate.
+// Per ITU-R M.584-2: the 21-bit address (RIC/capcode) has 18 bits in the codeword; the 3 LSBs
+// (address % 8) determine which of the 8 frames the address must appear in. Each frame has 2 codeword slots.
 func CreatePOCSAGBurstWithBaudRate(messages []MessageInfo, baudRate int) []byte {
-	// Generate preamble (alternating 1010...)
 	preamble := make([]byte, PreambleLength/8)
 	for i := range preamble {
 		preamble[i] = 0xAA
 	}
 
-	// Create codewords for all messages
-	codewords := make([]uint32, 0, 16*len(messages))
+	// Build codewords per message with correct frame placement (ITU-R M.584-2)
+	// Batch has 16 slots (8 frames × 2 codewords). Frame f uses slots 2*f, 2*f+1.
+	// Each message starts at slot 2*(address%8) in the first batch.
+	var batches [][]uint32 // batches[batchIndex][0..15], grow as needed
+
+	ensureBatch := func(batchIdx int) {
+		for len(batches) <= batchIdx {
+			batches = append(batches, make([]uint32, 16))
+			for i := range batches[len(batches)-1] {
+				batches[len(batches)-1][i] = IdleCodeword
+			}
+		}
+	}
 
 	for _, msg := range messages {
-		// Add address codeword
 		addressCW := EncodeAddress(msg.Address, msg.Function)
-		codewords = append(codewords, addressCW)
-
-		// Add message codewords - use appropriate encoder based on function
 		var encodedMessage []byte
 		if msg.Function == FuncNumeric {
-			// Numeric messages use BCD encoding
 			encodedMessage = NumericBCDEncoder(msg.Message)
 		} else {
-			// Alphanumeric and other functions use 7-bit ASCII
-			// Don't add ETX terminator - let the decoder handle message termination naturally
 			encodedMessage = Ascii7BitEncoder(msg.Message)
 		}
-
 		messageCWs := SplitMessageIntoFrames(encodedMessage)
-		codewords = append(codewords, messageCWs...)
+
+		f := int(msg.Address % 8)   // frame 0..7 (3 LSBs of 21-bit address)
+		startSlot := 2 * f          // first slot of this frame in the batch
+		batchIdx := 0
+		slotIdx := startSlot
+
+		// Write address codeword then message codewords into the correct frame/slots
+		allCWs := append([]uint32{addressCW}, messageCWs...)
+		for _, cw := range allCWs {
+			ensureBatch(batchIdx)
+			batches[batchIdx][slotIdx] = cw
+			slotIdx++
+			if slotIdx >= 16 {
+				slotIdx = 0
+				batchIdx++
+			}
+		}
 	}
 
-	// Pad to multiple of 16 codewords (full batches)
-	// Each batch needs sync word + 16 codewords
-	for len(codewords)%16 != 0 {
-		codewords = append(codewords, IdleCodeword)
+	if len(batches) == 0 {
+		ensureBatch(0)
 	}
 
-	// Convert to bytes
 	var buf bytes.Buffer
 	buf.Write(preamble)
-
-	// Write batches (each batch has sync word + 16 codewords)
-	numBatches := len(codewords) / 16
-	for batch := 0; batch < numBatches; batch++ {
-		// Frame sync for each batch
+	for _, batch := range batches {
 		writeUint32BE(&buf, FrameSyncWord)
-
-		// Write 16 codewords for this batch
-		for i := 0; i < 16; i++ {
-			cw := codewords[batch*16+i]
+		for _, cw := range batch {
 			writeUint32BE(&buf, cw)
 		}
 	}
-
 	return buf.Bytes()
 }
 

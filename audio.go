@@ -30,7 +30,8 @@ func ConvertToAudio(pocsagData []byte) []byte {
 	return ConvertToAudioWithBaudRate(pocsagData, BaudRate1200)
 }
 
-// ConvertToAudioWithBaudRate converts POCSAG bytes to WAV audio with specified baud rate
+// ConvertToAudioWithBaudRate converts POCSAG bytes to WAV audio with specified baud rate.
+// Uses baseband (DC levels): bit 1 = negative, bit 0 = positive. Compatible with pocsag-decode.
 func ConvertToAudioWithBaudRate(pocsagData []byte, baudRate int) []byte {
 	samplesPerSymbol := SampleRate / baudRate
 
@@ -64,6 +65,48 @@ func ConvertToAudioWithBaudRate(pocsagData []byte, baudRate int) []byte {
 	}
 
 	// Create WAV file
+	return createWAVFile(audioData)
+}
+
+// FSK tone frequencies for multimon-ng compatibility (mark=1, space=0)
+const (
+	FSKFreqSpace = 1200.0 // Hz, bit 0
+	FSKFreqMark  = 2200.0 // Hz, bit 1 (multimon-ng POCSAG 2200/1200)
+)
+
+// ConvertToAudioFSK converts POCSAG bytes to FSK WAV audio (sine waves).
+// Compatible with multimon-ng: bit 1 = 2200 Hz, bit 0 = 1200 Hz.
+// Use this when you need output decodable by multimon-ng.
+func ConvertToAudioFSK(pocsagData []byte, baudRate int) []byte {
+	samplesPerSymbol := SampleRate / baudRate
+	numBits := len(pocsagData) * 8
+	numSamples := numBits * samplesPerSymbol
+	audioData := make([]int16, numSamples)
+
+	const amplitude = 16000.0 // leave headroom for 16-bit
+	phase := 0.0
+	sampleIdx := 0
+
+	for _, b := range pocsagData {
+		for i := 7; i >= 0; i-- {
+			bit := (b >> i) & 1
+			freq := FSKFreqSpace
+			if bit == 1 {
+				freq = FSKFreqMark
+			}
+			phaseIncrement := 2.0 * math.Pi * freq / float64(SampleRate)
+
+			for j := 0; j < samplesPerSymbol; j++ {
+				phase += phaseIncrement
+				for phase > 2.0*math.Pi {
+					phase -= 2.0 * math.Pi
+				}
+				audioData[sampleIdx] = int16(amplitude * math.Sin(phase))
+				sampleIdx++
+			}
+		}
+	}
+
 	return createWAVFile(audioData)
 }
 

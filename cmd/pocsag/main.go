@@ -84,27 +84,29 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Address is the full 21-bit RIC/capcode (pager number). Used as-is; encoder places codeword in frame (address % 8).
+	addressVal := uint32(*address)
+
 	// Create POCSAG packet
 	var packet []byte
 	var err error
 
 	if *encrypt {
-		// Create encryption config
 		encryptionConfig := pocsag.EncryptionConfig{
 			Method: pocsag.EncryptionAES256,
 			Key:    pocsag.KeyFromPassword(*key, 32), // 32 bytes for AES-256
 		}
 
-		packet, err = pocsag.CreatePOCSAGPacketWithEncryption(uint32(*address), *message, uint8(*funcCode), *baudRate, encryptionConfig)
+		packet, err = pocsag.CreatePOCSAGPacketWithEncryption(addressVal, *message, uint8(*funcCode), *baudRate, encryptionConfig)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error creating encrypted packet: %v\n", err)
 			os.Exit(1)
 		}
 	} else {
-		packet = pocsag.CreatePOCSAGPacketWithBaudRate(uint32(*address), *message, uint8(*funcCode), *baudRate)
+		packet = pocsag.CreatePOCSAGPacketWithBaudRate(addressVal, *message, uint8(*funcCode), *baudRate)
 	}
 
-	// Convert to audio
+	// Convert to audio (baseband; works with pocsag-decode and multimon-ng)
 	wavData := pocsag.ConvertToAudioWithBaudRate(packet, *baudRate)
 
 	// Write to file
@@ -131,7 +133,8 @@ func main() {
 					return "alphanumeric"
 				}
 			}(),
-			"size": len(wavData),
+			"size":       len(wavData),
+			"duration_s": float64((len(wavData)-44)/2) / float64(pocsag.SampleRate),
 		}
 		jsonBytes, _ := json.MarshalIndent(result, "", "  ")
 		fmt.Println(string(jsonBytes))
@@ -142,18 +145,12 @@ func main() {
 		}
 		fmt.Printf("✅ Generated %s%s\n", *output, encryptionStatus)
 		fmt.Printf("   Address: %d, Function: %d, Baud: %d, Message: %s\n", *address, *funcCode, *baudRate, *message)
+		// WAV: 44-byte header + 16-bit mono samples
+		numSamples := (len(wavData) - 44) / 2
+		durationSec := float64(numSamples) / float64(pocsag.SampleRate)
+		fmt.Printf("   Size: %d bytes, Duration: %.2f s\n", len(wavData), durationSec)
 
-		// Show appropriate multimon-ng command based on baud rate
-		var multimonCmd string
-		switch *baudRate {
-		case pocsag.BaudRate512:
-			multimonCmd = fmt.Sprintf("multimon-ng -t wav -a POCSAG512 %s", *output)
-		case pocsag.BaudRate1200:
-			multimonCmd = fmt.Sprintf("multimon-ng -t wav -a POCSAG1200 %s", *output)
-		case pocsag.BaudRate2400:
-			multimonCmd = fmt.Sprintf("multimon-ng -t wav -a POCSAG2400 %s", *output)
-		}
-		fmt.Printf("\nTest with: %s\n", multimonCmd)
+		fmt.Printf("\nDecode: pocsag-decode -i %s  or  multimon-ng -t wav -a POCSAG%d %s\n", *output, *baudRate, *output)
 		if *encrypt {
 			fmt.Printf("Note: This message is encrypted. Use pocsag-decode with --key to decrypt.\n")
 		}

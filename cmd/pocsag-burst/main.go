@@ -115,18 +115,24 @@ func main() {
 				}(),
 			}
 		}
+		numSamples := (len(wavData) - 44) / 2
+		durationSec := float64(numSamples) / float64(pocsag.SampleRate)
 		result := map[string]interface{}{
-			"success":  true,
-			"output":   *output,
-			"messages": jsonMessages,
-			"baud":     *baudRate,
-			"count":    len(messages),
-			"size":     len(wavData),
+			"success":    true,
+			"output":     *output,
+			"messages":   jsonMessages,
+			"baud":       *baudRate,
+			"count":      len(messages),
+			"size":       len(wavData),
+			"duration_s": durationSec,
 		}
 		jsonBytes, _ := json.MarshalIndent(result, "", "  ")
 		fmt.Println(string(jsonBytes))
 	} else {
+		numSamples := (len(wavData) - 44) / 2
+		durationSec := float64(numSamples) / float64(pocsag.SampleRate)
 		fmt.Printf("✅ Generated burst with %d messages: %s (baud: %d)\n", len(messages), *output, *baudRate)
+		fmt.Printf("   Size: %d bytes, Duration: %.2f s\n", len(wavData), durationSec)
 		for i, msg := range messages {
 			msgType := "ALPHA"
 			if msg.Function == 0 {
