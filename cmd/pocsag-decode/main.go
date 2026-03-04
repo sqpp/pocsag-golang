@@ -22,6 +22,9 @@ func main() {
 	version := flag.Bool("version", false, "Show version information")
 	flag.BoolVar(version, "v", false, "Show version information")
 
+	keyStr := flag.String("key", "", "Decryption key (password string)")
+	flag.StringVar(keyStr, "k", "", "Decryption key (short form)")
+
 	flag.Parse()
 
 	// Handle version flag
@@ -47,6 +50,15 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Parse decryption key if provided
+	var encConfig pocsag.EncryptionConfig
+	if *keyStr != "" {
+		encConfig = pocsag.EncryptionConfig{
+			Method: pocsag.EncryptionAES256,
+			Key:    pocsag.KeyFromPassword(*keyStr, 32),
+		}
+	}
+
 	// Read WAV file
 	data, err := os.ReadFile(*inputFile)
 	if err != nil {
@@ -55,7 +67,13 @@ func main() {
 	}
 
 	// Decode POCSAG
-	messages, err := pocsag.DecodeFromAudioWithBaudRate(data, *baudRate)
+	var messages []pocsag.DecodedMessage
+	if *keyStr != "" {
+		messages, err = pocsag.DecodeFromLiveStreamWithDecryption(data, *baudRate, encConfig)
+	} else {
+		messages, err = pocsag.DecodeFromAudioWithBaudRate(data, *baudRate)
+	}
+
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error decoding: %v\n", err)
 		os.Exit(1)

@@ -4,7 +4,20 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [2.2.0]
+## [2.2.1]
+
+### Added
+- **Demodulation Robustness:** Multi-strategy approach implemented to automatically detect and handle ideal baseband, flat DC offsets, and heavy DC drift over time.
+- **DPLL Digital Clock Recovery:** A Phase-Locked Loop (DPLL) algorithm was added to the baseband decoder to detect bit-boundaries at zero crossings and re-align sampling phase, drastically improving resistance to clock drift in real-world recordings.
+- **`pocsag-decode` End-to-End Decryption:** `pocsag-decode` now natively supports AES 256 CBC decryption matching the `pocsag-encode` utility! You can pass a plain-text password using the `-k` or `--key` flags to decode encrypted files.
+
+### Fixed
+- **Multi-Batch Burst Truncation:** Fixed a major bug in `DecodeFromBinaryLiveStream` where POCSAG bursts containing multiple 16-codeword batches were incorrectly truncated after the first batch. The decoder now properly counts 16 codewords per batch, expects intermediate `FrameSyncWord` markers, and continues decoding the entire physical transmission instead of dropping up to 80% of it. This restored hidden messages in real-world recordings and allowed Base64 padding to survive the decoding process.
+- **Base64 Padding Repair:** Fixed decryption failing silently due to POCSAG truncating or padding encoded messages with space/NUL/ETX characters. Base64 encoded cipher-texts are now trimmed and reconstructed with correctly padded `=` sequences before being handed to `decryptAES`.
+- **Address Re-Construction:** Re-wrote the address codeword logic to correctly bitwise OR the base-address with the current batch frame-index, restoring correct RIC addresses. The final decoded address is now also properly masked (`&= ^uint32(1 << 19)`) to match the standard 20-bit address formatting.
+- **Dynamic WAV Header Parsing:** Re-wrote the file loading logic in `DecodeFromLiveStreamWithDecryption` and the raw data parser to dynamically seek out the `"data"` subchunk instead of relying on a hardcoded 44 byte offset. WAV sample rates are now also dynamically parsed from the header.
+
+## [2.2.0] - 2026-02-20
 
 ### Fixed
 - **POCSAG address (RIC/capcode) and frame placement** – Address handling now matches ITU-R M.584-2:

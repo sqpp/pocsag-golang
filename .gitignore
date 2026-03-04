@@ -9,6 +9,7 @@ luau
 pocsag-decode
 pocsag-burst
 bin
+test_inv/
 
 # Test binary, built with `go test -c`
 *.test

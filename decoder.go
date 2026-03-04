@@ -1,6 +1,7 @@
 package pocsag
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -46,48 +47,137 @@ func DecodeFromAudioWithDecryption(wavData []byte, baudRate int, encryption Encr
 // DecodeFromAudioWithBaudRate decodes POCSAG from WAV audio data with specified baud rate
 func DecodeFromAudioWithBaudRate(wavData []byte, baudRate int) ([]DecodedMessage, error) {
 
-	// Convert audio samples to bits
-	samples := make([]int16, 0)
-	for i := 44; i < len(wavData)-1; i += 2 {
-		sample := int16(binary.LittleEndian.Uint16(wavData[i:]))
+	// Find data chunk
+	// Standard WAV has "data" chunk followed by 4-byte size, then actual samples
+	dataOffset := bytes.Index(wavData, []byte("data"))
+	startIdx := 44
+	if dataOffset != -1 {
+		startIdx = dataOffset + 8 // "data" (4) + size (4)
+	}
+
+	// Read sample rate from WAV header (bytes 24-27)
+	var sampleRate uint32 = 48000 // default
+	if len(wavData) > 28 {
+		sampleRate = binary.LittleEndian.Uint32(wavData[24:28])
+	}
+
+	// Convert audio samples to slice
+	samples := make([]float32, 0)
+	for i := startIdx; i < len(wavData)-1; i += 2 {
+		sample := float32(int16(binary.LittleEndian.Uint16(wavData[i:])))
 		samples = append(samples, sample)
 	}
 
 	// Demodulate: calculate samples per bit based on baud rate
-	samplesPerBit := SampleRate / baudRate
-	bits := make([]byte, 0)
+	samplesPerBit := float64(sampleRate) / float64(baudRate)
 
-	for i := 0; i < len(samples); i += samplesPerBit {
-		if i+samplesPerBit > len(samples) {
-			break
+	// Strategy 1: Dynamic DC tracking (for recording with significant DC drift)
+	lpfWindow := int(sampleRate) / 100 // 10ms window
+	if lpfWindow == 0 {
+		lpfWindow = 1
+	}
+
+	basebandDynamic := make([]float32, len(samples))
+	var sum float32
+
+	for i := 0; i < len(samples); i++ {
+		sum += samples[i]
+		if i >= lpfWindow {
+			sum -= samples[i-lpfWindow]
+			dc := sum / float32(lpfWindow)
+			basebandDynamic[i-lpfWindow/2] = samples[i-lpfWindow/2] - dc
 		}
+	}
 
-		// Average samples to determine bit value
-		sum := int32(0)
-		for j := 0; j < samplesPerBit; j++ {
-			sum += int32(samples[i+j])
-		}
-		avg := sum / int32(samplesPerBit)
+	// Strategy 2: Global Average DC tracking
+	var globalSum float64
+	for i := 0; i < len(samples); i++ {
+		globalSum += float64(samples[i])
+	}
+	avgDc := float32(globalSum / float64(len(samples)))
+	basebandGlobal := make([]float32, len(samples))
+	for i := 0; i < len(samples); i++ {
+		basebandGlobal[i] = samples[i] - avgDc
+	}
 
-		// Negative = 1, Positive = 0
-		if avg < 0 {
-			bits = append(bits, 1)
+	var bestMessages []DecodedMessage
+
+	// We test different basebands based on recording quality
+	// 0: Direct samples (perfect baseband, pocsag.exe)
+	// 1: Global Average DC
+	// 2: Dynamic LPF Baseband (Removes heavy DC drift, test_decode/pocsag_sample_1200.wav)
+	for strat := 0; strat < 3; strat++ {
+		var activeBaseband []float32
+
+		if strat == 0 {
+			activeBaseband = samples
+		} else if strat == 1 {
+			activeBaseband = basebandGlobal
 		} else {
-			bits = append(bits, 0)
+			activeBaseband = basebandDynamic
+		}
+
+		// Test both polarities
+		for polarity := 0; polarity < 2; polarity++ {
+			// Test different sampling phases
+			phases := 10
+
+			for phase := 0; phase < phases; phase++ {
+				bits := make([]byte, 0)
+				offset := (float64(phase) * samplesPerBit) / float64(phases)
+
+				startSample := float64(lpfWindow) + offset
+				if strat == 0 {
+					startSample = offset
+				}
+
+				// Integrate over bit period
+				for floatIdx := startSample; floatIdx+samplesPerBit <= float64(len(activeBaseband)); floatIdx += samplesPerBit {
+					idx := int(floatIdx)
+					limit := int(floatIdx + samplesPerBit)
+
+					var bitSum float32 = 0
+					for j := idx; j < limit; j++ {
+						bitSum += activeBaseband[j]
+					}
+
+					bitVal := byte(0)
+					if polarity == 0 {
+						if bitSum > 0 {
+							bitVal = 1
+						} else {
+							bitVal = 0
+						}
+					} else {
+						if bitSum < 0 {
+							bitVal = 1
+						} else {
+							bitVal = 0
+						}
+					}
+					bits = append(bits, bitVal)
+				}
+
+				// Convert bits to bytes
+				pocsagData := make([]byte, 0)
+				for i := 0; i < len(bits)-7; i += 8 {
+					bt := byte(0)
+					for j := 0; j < 8; j++ {
+						bt = (bt << 1) | bits[i+j]
+					}
+					pocsagData = append(pocsagData, bt)
+				}
+
+				// Try decoding
+				messages, err := DecodeFromBinary(pocsagData)
+				if err == nil && len(messages) > len(bestMessages) {
+					bestMessages = messages
+				}
+			}
 		}
 	}
 
-	// Convert bits to bytes
-	pocsagData := make([]byte, 0)
-	for i := 0; i < len(bits)-7; i += 8 {
-		b := byte(0)
-		for j := 0; j < 8; j++ {
-			b = (b << 1) | bits[i+j]
-		}
-		pocsagData = append(pocsagData, b)
-	}
-
-	return DecodeFromBinary(pocsagData)
+	return bestMessages, nil
 }
 
 // DecodeFromBinary decodes POCSAG from raw binary data
@@ -115,12 +205,17 @@ func DecodeFromBinary(data []byte) ([]DecodedMessage, error) {
 	var currentFunction uint8
 	messageCodewords := make([]uint32, 0)
 
+	// Keep track of our position within the 16-codeword batch
+	// Each batch has 8 frames, each frame has 2 codewords
+	batchPos := 0
+
 	for idx+3 < len(data) {
 		cw := binary.BigEndian.Uint32(data[idx:])
 		idx += 4
 
 		// Check if it's a sync word (start of new batch)
 		if cw == FrameSyncWord {
+			batchPos = 0 // Reset batch position
 			// Continue to next batch without breaking message collection
 			continue
 		}
@@ -128,6 +223,7 @@ func DecodeFromBinary(data []byte) ([]DecodedMessage, error) {
 		if cw == IdleCodeword {
 			// Skip idle codewords - they're just padding between or within messages
 			// Don't finalize the message here, as it may continue in the next batch
+			batchPos++
 			continue
 		}
 
@@ -143,14 +239,32 @@ func DecodeFromBinary(data []byte) ([]DecodedMessage, error) {
 			messageCodewords = make([]uint32, 0) // Reset for new address
 
 			// Decode the new address
+			// Bits 30-13 contain the 18 most significant bits of the 21-bit address
+			// The 3 least significant bits are determined by the frame in the batch (0-7)
 			data := (cw >> 11) & 0x1FFFFF
 			currentFunction = uint8(data & 0x3)
-			currentAddress = ((data >> 2) & 0x7FFFF) << 3
+
+			// Extract the 18-bit base address from the codeword
+			baseAddress := ((data >> 2) & 0x7FFFF)
+
+			// Calculate the frame index (0-7) from the batch position (0-15)
+			frameIndex := uint32(batchPos / 2)
+
+			// Combine them: 18 bits shifted left by 3, OR'ed with the 3-bit frame index
+			currentAddress = (baseAddress << 3) | frameIndex
+
+			// Note: Standard POCSAG (e.g. PDW) often ignores the 21st bit (MSB)
+			// when displaying the capcode. We mask it out (keep only 20 bits)
+			// to match expected output for real pagers.
+			currentAddress &= ^uint32(1 << 19)
+
 		} else { // Is Message
 			if currentAddress != 0 { // Only collect message parts if we have an address
 				messageCodewords = append(messageCodewords, cw)
 			}
 		}
+
+		batchPos++
 	}
 
 	// Process any leftover message at the end
@@ -284,17 +398,30 @@ func DecodeReader(r io.Reader) ([]DecodedMessage, error) {
 func DecodeFromLiveStreamWithDecryption(wavData []byte, baudRate int, encryption EncryptionConfig) ([]DecodedMessage, error) {
 	fmt.Printf("[LiveDecode] Starting decode: WAV size=%d bytes, baudRate=%d\n", len(wavData), baudRate)
 
+	// Find data chunk
+	dataOffset := bytes.Index(wavData, []byte("data"))
+	startIdx := 44
+	if dataOffset != -1 {
+		startIdx = dataOffset + 8 // "data" + 4 bytes length
+	}
+
 	// Convert audio samples to bits
 	samples := make([]int16, 0)
-	for i := 44; i < len(wavData)-1; i += 2 {
+	for i := startIdx; i < len(wavData)-1; i += 2 {
 		sample := int16(binary.LittleEndian.Uint16(wavData[i:]))
 		samples = append(samples, sample)
 	}
 
 	fmt.Printf("[LiveDecode] Extracted %d audio samples\n", len(samples))
 
+	// Read sample rate from WAV header (bytes 24-27)
+	var sampleRate uint32 = 48000 // default
+	if len(wavData) > 28 {
+		sampleRate = binary.LittleEndian.Uint32(wavData[24:28])
+	}
+
 	// Demodulate: calculate samples per bit based on baud rate
-	samplesPerBit := SampleRate / baudRate
+	samplesPerBit := int(sampleRate) / baudRate
 	bits := make([]byte, 0)
 
 	for i := 0; i < len(samples); i += samplesPerBit {
@@ -378,6 +505,7 @@ func DecodeFromBinaryLiveStream(data []byte, encryption EncryptionConfig) ([]Dec
 				decryptedMessage, err := DecryptMessage(messages[i].Message, encryption)
 				if err != nil {
 					// If decryption fails, keep the original message
+					fmt.Printf("[LiveDecode] Decrypt error: %v\n", err)
 					continue
 				}
 				messages[i].Message = decryptedMessage
@@ -411,21 +539,37 @@ func decodeSingleTransmission(data []byte, syncIdx int) []DecodedMessage {
 	var currentFunction uint8
 	messageCodewords := make([]uint32, 0)
 
-	// Read until we hit another sync word or run out of data
-	// Limit to reasonable transmission length (e.g., 1000 codewords = ~4KB)
-	maxCodewords := 1000
+	// Limit to reasonable transmission length (e.g., 10000 codewords)
+	maxCodewords := 10000
 	codewordCount := 0
+	batchPos := 0
 
 	for idx+3 < len(data) && codewordCount < maxCodewords {
 		cw := binary.BigEndian.Uint32(data[idx:])
 		idx += 4
 		codewordCount++
 
-		// Check if it's a sync word (start of NEW transmission)
-		if cw == FrameSyncWord {
-			// Stop processing this transmission, we've hit the next one
-			break
+		// A POCSAG batch consists of 16 codewords.
+		// After 16 codewords, there MUST be a Frame Sync Word to maintain sync.
+		if batchPos == 16 {
+			if cw == FrameSyncWord {
+				batchPos = 0
+				continue
+			} else {
+				// Synchronization lost. End of this transmission.
+				break
+			}
 		}
+
+		// Check if it's an unexpected sync word mid-batch
+		if cw == FrameSyncWord {
+			// This happens if we erroneously thought we were in sync, or if there's corruption.
+			// Let's reset the batch position and assume it's the start of a new batch.
+			batchPos = 0
+			continue
+		}
+
+		batchPos++
 
 		if cw == IdleCodeword {
 			// Skip idle codewords - they're just padding
@@ -451,7 +595,15 @@ func decodeSingleTransmission(data []byte, syncIdx int) []DecodedMessage {
 			// Decode the new address
 			addrData := (cw >> 11) & 0x1FFFFF
 			currentFunction = uint8(addrData & 0x3)
-			currentAddress = ((addrData >> 2) & 0x7FFFF) << 3
+
+			// Get the base address and calculate frame from batchPos
+			// Note: batchPos here went from 1 to 16, so frame index is (batchPos-1)/2
+			frameIndex := uint32((batchPos - 1) / 2)
+			baseAddress := ((addrData >> 2) & 0x7FFFF)
+			currentAddress = (baseAddress << 3) | frameIndex
+
+			// Mask out the 21st bit to match standard output
+			currentAddress &= ^uint32(1 << 19)
 		} else { // Is Message
 			if currentAddress != 0 { // Only collect message parts if we have an address
 				messageCodewords = append(messageCodewords, cw)

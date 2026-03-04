@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"hash/crc32"
 	"io"
+	"strings"
 )
 
 // EncryptionMethod represents the type of encryption to use
@@ -141,8 +142,15 @@ func encryptAES(data string, key []byte, keySize int, iv []byte) (string, error)
 
 // decryptAES decrypts Base64 encoded AES data
 func decryptAES(encryptedData string, key []byte, keySize int, iv []byte) (string, error) {
+	// POCSAG decoding often strips trailing '=' padding or appends NUL/ETX/Space.
+	// Clean the string and repair Base64 padding.
+	cleanedStr := strings.TrimRight(encryptedData, "\x00\x03\x04\r\n ")
+	if padding := len(cleanedStr) % 4; padding > 0 {
+		cleanedStr += strings.Repeat("=", 4-padding)
+	}
+
 	// Decode Base64
-	data, err := base64.StdEncoding.DecodeString(encryptedData)
+	data, err := base64.StdEncoding.DecodeString(cleanedStr)
 	if err != nil {
 		return "", fmt.Errorf("failed to decode base64: %v", err)
 	}
