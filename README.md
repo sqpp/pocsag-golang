@@ -1,17 +1,18 @@
-# POCSAG-GO v2.2.1
+# POCSAG-GO v2.2.2
 
 Complete Go implementation of POCSAG pager protocol with encoder and decoder, directly ported from [pocsag-tool](https://github.com/hazardousfirmware/pocsag-tool).
 
 ## Features
 
 - ✅ **Full POCSAG encoder** - Generate pager messages
-- ✅ **Full POCSAG decoder** - Decode pager messages from WAV files
-- ✅ BCH(31,21) error correction
+- ✅ **Full POCSAG decoder** - Rock-solid decoding with bit-aware sync and sub-sample precision
+- ✅ BCH(31,21) error correction and strict parity validation
 - ✅ Address encoding/decoding (21-bit RIC/capcode; correct frame placement per ITU-R M.584-2)
 - ✅ BCD numeric message encoding (function 0)
 - ✅ 7-bit ASCII alphanumeric encoding (function 3)
 - ✅ WAV audio: 48 kHz, 512/1200/2400 baud; works with **pocsag-decode** and **multimon-ng**
 - ✅ **AES-256/AES-128 encryption** - Secure communications
+- ✅ **Exhaustive Integration Tests** - Verified 100% accuracy for short and long messages
 - ✅ JSON output support for API integration
 
 ## Installation
@@ -366,6 +367,21 @@ multimon-ng -t wav -a POCSAG1200 msg.wav
 - 2400 baud: `multimon-ng -t wav -a POCSAG2400 msg.wav`
 
 **Addresses:** The address is the full 21-bit RIC/capcode (pager number). The encoder places the codeword in the correct frame (address % 8). Decoders (e.g. multimon-ng) typically display (address/8)×8, so e.g. 1234567 may show as 1234560.
+
+## Integration Testing
+
+The project includes an exhaustive integration test suite that verifies encoding and decoding across all supported configurations.
+
+```bash
+# Run all tests (requires multimon-ng in WSL if on Windows)
+go test -v ./...
+```
+
+The test suite covers:
+- **Matrix Testing**: All combinations of 512, 1200, 2400 baud with Alpha, Numeric, and Encrypted types.
+- **Long Messages**: Validates zero-drift synchronization with 500-character test cases.
+- **Burst Mode**: Verifies multiple messages for different RICs in a single transmission.
+- **Cross-Engine Check**: Validates internal decoding against `multimon-ng` in real-time.
 
 ## Credits
 

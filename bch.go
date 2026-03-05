@@ -27,13 +27,32 @@ func CalculateBCH(x uint32) uint32 {
 	return x | dividend // combine data with BCH parity
 }
 
-// CalculateEvenParity calculates even parity bit - exact port from pocsag.c lines 83-101
+// CalculateEvenParity calculates even parity bit - exact port from pocsag.c
 func CalculateEvenParity(x uint32) uint32 {
 	count := 0
-	for i := 1; i < NumTotalBits; i++ { // NUM_BITS_INT = 31 in C (not 32!)
+	for i := 1; i < 32; i++ { // Count all bits from 1 to 31
 		if x&(1<<i) != 0 {
 			count++
 		}
 	}
-	return x | uint32(count%2)
+	parity := uint32(count % 2)
+	return (x &^ uint32(1)) | parity // Clear bit 0 and set new parity
+}
+
+// DoesWordPassBCH checks if a codeword matches its BCH(31,21) parity and even parity
+func DoesWordPassBCH(cw uint32) bool {
+	// 1. Check BCH bits (1-31)
+	// CalculateBCH returns (data | parity_bits) where bit 0 is 0.
+	dataBits := cw & AddressMask
+	expected := CalculateBCH(dataBits)
+
+	// Compare bits 1-31 (mask out bit 0)
+	if (expected & ^uint32(1)) != (cw & ^uint32(1)) {
+		return false
+	}
+
+	// 2. Check overall even parity (bit 0)
+	// CalculateEvenParity returns the word with the correct bit 0 for even parity
+	expectedParity := CalculateEvenParity(cw)
+	return expectedParity == cw
 }

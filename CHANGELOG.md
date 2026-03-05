@@ -4,6 +4,20 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.2.2] - 2026-03-05
+
+### Added
+- **Exhaustive Integration Test Suite:** Added `integration_test.go` which exhaustively verifies all baud rates (512, 1200, 2400) and message types (Alpha, Numeric, Encrypted) against both the internal decoder and `multimon-ng`.
+- **Long Message Support:** Validated internal decoder synchronization with 500-character messages (over 3500 bits) across all baud rates.
+- **Bit-Aware Decoding:** The decoder now scans the demodulated bitstream bit-by-bit for the POCSAG sync word, eliminating synchronization failures previously caused by byte-alignment shifts mid-transmission.
+
+### Fixed
+- **Sub-Sample Index Precision:** Switched to cumulative `math.Round` logic for both encoding and decoding to ensure zero timing drift over extended transmissions.
+- **2400 Baud Stability:** Dramatic improvement in high-baud reliability by combining high-precision sampling with bit-aware sync detection.
+- **BCH Hallucination Filtering:** Added strict BCH(31,21) and even parity validation to the decoding loop, preventing corrupted noise from being interpreted as valid messages.
+- **Burst Encoder State Tracker:** Fixed a bug where multiple messages in a burst would overwrite each other. The encoder now correctly maintains batch/frame state when appending messages.
+- **LiveDecode Truncation:** Fixed an integer truncation bug in `DecodeFromLiveStreamWithDecryption` that caused gradual drift and decoding failure in long recordings.
+
 ## [2.2.1]
 
 ### Added

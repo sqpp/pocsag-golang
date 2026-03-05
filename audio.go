@@ -33,33 +33,29 @@ func ConvertToAudio(pocsagData []byte) []byte {
 // ConvertToAudioWithBaudRate converts POCSAG bytes to WAV audio with specified baud rate.
 // Uses baseband (DC levels): bit 1 = negative, bit 0 = positive. Compatible with pocsag-decode.
 func ConvertToAudioWithBaudRate(pocsagData []byte, baudRate int) []byte {
-	samplesPerSymbol := SampleRate / baudRate
-
-	// Calculate total samples
+	samplesPerSymbol := float64(SampleRate) / float64(baudRate)
 	numBits := len(pocsagData) * 8
-	numSamples := numBits * samplesPerSymbol
+	numSamples := int(float64(numBits) * samplesPerSymbol)
 
-	// Audio data
 	audioData := make([]int16, numSamples)
-	sampleIdx := 0
 
-	// Process each byte
-	for _, b := range pocsagData {
-		// Process each bit (MSB first)
-		for i := 7; i >= 0; i-- {
-			bit := (b >> i) & 1
+	for byteIdx, b := range pocsagData {
+		for bitPos := 7; bitPos >= 0; bitPos-- {
+			bit := (b >> bitPos) & 1
 			var sample int16
 
 			if bit == 1 {
-				sample = int16(SymbolHigh) // negative value
+				sample = int16(SymbolHigh)
 			} else {
-				sample = int16(SymbolLow) // positive value
+				sample = int16(SymbolLow)
 			}
 
-			// Repeat sample for baud rate
-			for j := 0; j < samplesPerSymbol; j++ {
-				audioData[sampleIdx] = sample
-				sampleIdx++
+			bitIndex := byteIdx*8 + (7 - bitPos)
+			startIdx := int(math.Round(float64(bitIndex) * samplesPerSymbol))
+			endIdx := int(math.Round(float64(bitIndex+1) * samplesPerSymbol))
+
+			for j := startIdx; j < endIdx; j++ {
+				audioData[j] = sample
 			}
 		}
 	}
@@ -78,31 +74,33 @@ const (
 // Compatible with multimon-ng: bit 1 = 2200 Hz, bit 0 = 1200 Hz.
 // Use this when you need output decodable by multimon-ng.
 func ConvertToAudioFSK(pocsagData []byte, baudRate int) []byte {
-	samplesPerSymbol := SampleRate / baudRate
+	samplesPerSymbol := float64(SampleRate) / float64(baudRate)
 	numBits := len(pocsagData) * 8
-	numSamples := numBits * samplesPerSymbol
+	numSamples := int(float64(numBits) * samplesPerSymbol)
 	audioData := make([]int16, numSamples)
 
 	const amplitude = 16000.0 // leave headroom for 16-bit
 	phase := 0.0
-	sampleIdx := 0
 
-	for _, b := range pocsagData {
-		for i := 7; i >= 0; i-- {
-			bit := (b >> i) & 1
+	for byteIdx, b := range pocsagData {
+		for bitPos := 7; bitPos >= 0; bitPos-- {
+			bit := (b >> bitPos) & 1
 			freq := FSKFreqSpace
 			if bit == 1 {
 				freq = FSKFreqMark
 			}
 			phaseIncrement := 2.0 * math.Pi * freq / float64(SampleRate)
 
-			for j := 0; j < samplesPerSymbol; j++ {
+			bitIndex := byteIdx*8 + (7 - bitPos)
+			startIdx := int(float64(bitIndex) * samplesPerSymbol)
+			endIdx := int(float64(bitIndex+1) * samplesPerSymbol)
+
+			for j := startIdx; j < endIdx; j++ {
 				phase += phaseIncrement
 				for phase > 2.0*math.Pi {
 					phase -= 2.0 * math.Pi
 				}
-				audioData[sampleIdx] = int16(amplitude * math.Sin(phase))
-				sampleIdx++
+				audioData[j] = int16(amplitude * math.Sin(phase))
 			}
 		}
 	}
@@ -148,9 +146,9 @@ func createWAVFile(samples []int16) []byte {
 // GenerateFSKSamples generates IQ samples from POCSAG bytes for SDR-style waterfall
 // Returns interleaved I/Q samples: [I0, Q0, I1, Q1, ...]
 func GenerateFSKSamples(pocsagData []byte, baudRate int) []int16 {
-	samplesPerBit := SampleRate / baudRate
+	samplesPerBit := float64(SampleRate) / float64(baudRate)
 	numBits := len(pocsagData) * 8
-	numSamples := numBits * samplesPerBit
+	numSamples := int(float64(numBits) * samplesPerBit)
 
 	// Interleaved IQ: 2 values per sample
 	samples := make([]int16, numSamples*2)
@@ -193,8 +191,12 @@ func GenerateFSKSamples(pocsagData []byte, baudRate int) []int16 {
 			}
 
 			// Generate IQ samples for this bit and ADD to existing noise
-			for j := 0; j < samplesPerBit; j++ {
-				sampleIdx := ((byteIdx*8+(7-bitPos))*samplesPerBit + j) * 2
+			bitIndex := byteIdx*8 + (7 - bitPos)
+			startIdx := int(float64(bitIndex) * samplesPerBit)
+			endIdx := int(float64(bitIndex+1) * samplesPerBit)
+
+			for sampleIdx := startIdx; sampleIdx < endIdx; sampleIdx++ {
+				iqIdx := sampleIdx * 2
 
 				// Instantaneous frequency
 				instantFreq := carrierFreq + freqOffset
@@ -210,8 +212,8 @@ func GenerateFSKSamples(pocsagData []byte, baudRate int) []int16 {
 				signalQ := signalAmplitude * math.Sin(carrierPhase)
 
 				// ADD signal to existing noise (bright signal on blue background)
-				samples[sampleIdx] += int16(signalI)   // Add to I
-				samples[sampleIdx+1] += int16(signalQ) // Add to Q
+				samples[iqIdx] += int16(signalI)   // Add to I
+				samples[iqIdx+1] += int16(signalQ) // Add to Q
 			}
 		}
 	}

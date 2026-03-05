@@ -275,6 +275,9 @@ func CreatePOCSAGBurstWithBaudRate(messages []MessageInfo, baudRate int) []byte 
 		}
 	}
 
+	lastBatchIdx := 0
+	lastSlotIdx := -1
+
 	for _, msg := range messages {
 		addressCW := EncodeAddress(msg.Address, msg.Function)
 		var encodedMessage []byte
@@ -284,17 +287,28 @@ func CreatePOCSAGBurstWithBaudRate(messages []MessageInfo, baudRate int) []byte 
 			encodedMessage = Ascii7BitEncoder(msg.Message)
 		}
 		messageCWs := SplitMessageIntoFrames(encodedMessage)
-
-		f := int(msg.Address % 8)   // frame 0..7 (3 LSBs of 21-bit address)
-		startSlot := 2 * f          // first slot of this frame in the batch
-		batchIdx := 0
-		slotIdx := startSlot
-
-		// Write address codeword then message codewords into the correct frame/slots
 		allCWs := append([]uint32{addressCW}, messageCWs...)
+
+		f := int(msg.Address % 8) // target frame 0..7
+		startSlot := 2 * f
+
+		// Find first batch where we can start at frame f
+		batchIdx := lastBatchIdx
+		if lastSlotIdx >= startSlot {
+			batchIdx++
+		}
+
+		slotIdx := startSlot
 		for _, cw := range allCWs {
 			ensureBatch(batchIdx)
+			// Move to next batch if we current one is full OR we hit the start of next batch
+			// Actually, messages just continue into the next word.
+			// But wait: if we are in the middle of a batch and we have more words, we just increment slotIdx.
 			batches[batchIdx][slotIdx] = cw
+
+			lastBatchIdx = batchIdx
+			lastSlotIdx = slotIdx
+
 			slotIdx++
 			if slotIdx >= 16 {
 				slotIdx = 0

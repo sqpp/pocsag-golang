@@ -68,11 +68,7 @@ func main() {
 
 	// Decode POCSAG
 	var messages []pocsag.DecodedMessage
-	if *keyStr != "" {
-		messages, err = pocsag.DecodeFromLiveStreamWithDecryption(data, *baudRate, encConfig)
-	} else {
-		messages, err = pocsag.DecodeFromAudioWithBaudRate(data, *baudRate)
-	}
+	messages, err = pocsag.DecodeFromAudioWithDecryption(data, *baudRate, encConfig)
 
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error decoding: %v\n", err)

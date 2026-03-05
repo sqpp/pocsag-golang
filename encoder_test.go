@@ -50,6 +50,30 @@ func TestBCH(t *testing.T) {
 	}
 }
 
+func TestMessageParity(t *testing.T) {
+	// Message codewords must have bit 31 set and even parity across all 32 bits
+	messages := []string{"A", "HELLO", "TESTING 123"}
+	for _, m := range messages {
+		encoded := Ascii7BitEncoder(m)
+		cws := SplitMessageIntoFrames(encoded)
+		for i, cw := range cws {
+			if cw&(1<<31) == 0 {
+				t.Errorf("Message %q codeword %d missing bit 31", m, i)
+			}
+			// Count bits
+			count := 0
+			for bit := 0; bit < 32; bit++ {
+				if cw&(1<<bit) != 0 {
+					count++
+				}
+			}
+			if count%2 != 0 {
+				t.Errorf("Message %q codeword %d (0x%08X) has odd parity", m, i, cw)
+			}
+		}
+	}
+}
+
 func TestExample(t *testing.T) {
 	// Generate example file like the C tool
 	packet := CreatePOCSAGPacket(4444, "Broadcast this on hackrf", FuncAlphanumeric)
