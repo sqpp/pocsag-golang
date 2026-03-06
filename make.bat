@@ -2,7 +2,7 @@
 setlocal EnableDelayedExpansion
 
 REM Default version if not provided
-if "%VERSION%"=="" set VERSION=2.2.2
+if "%VERSION%"=="" set VERSION=2.3.0
 
 REM Build metadata
 for /f %%i in ('powershell -NoProfile -Command "Get-Date -Format yyyy-MM-dd_HH:mm:ss"') do set BUILD_TIME=%%i
