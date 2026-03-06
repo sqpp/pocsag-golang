@@ -1,30 +1,32 @@
-# POCSAG-GO v2.2.2
+# POCSAG-GO v2.3.0
 
-Complete Go implementation of POCSAG pager protocol with encoder and decoder, directly ported from [pocsag-tool](https://github.com/hazardousfirmware/pocsag-tool).
+A complete Go implementation of the POCSAG pager protocol — encoder, decoder, and everything in between. Ported from [pocsag-tool](https://github.com/hazardousfirmware/pocsag-tool) and extended significantly.
 
-## Features
+## What it can do
 
-- ✅ **Full POCSAG encoder** - Generate pager messages
-- ✅ **Full POCSAG decoder** - Rock-solid decoding with bit-aware sync and sub-sample precision
-- ✅ BCH(31,21) error correction and strict parity validation
-- ✅ Address encoding/decoding (21-bit RIC/capcode; correct frame placement per ITU-R M.584-2)
-- ✅ BCD numeric message encoding (function 0)
-- ✅ 7-bit ASCII alphanumeric encoding (function 3)
-- ✅ WAV audio: 48 kHz, 512/1200/2400 baud; works with **pocsag-decode** and **multimon-ng**
-- ✅ **AES-256/AES-128 encryption** - Secure communications
-- ✅ **Exhaustive Integration Tests** - Verified 100% accuracy for short and long messages
-- ✅ JSON output support for API integration
+- Encode POCSAG messages as WAV audio files (512, 1200, or 2400 baud)
+- Decode those WAV files back to text, with a bit-aware sync engine that handles real-world recordings
+- BCH(31,21) error correction and parity validation on every codeword
+- Full 21-bit RIC/capcode addressing, placed in the correct frame per ITU-R M.584-2
+- Numeric (BCD) and 7-bit ASCII alphanumeric message types
+- AES-256/AES-128 encryption with password-based key derivation
+- Burst mode — pack multiple messages for different pagers into one WAV
+- GPU-accelerated waterfall spectrogram (OpenGL 4.1) with PNG export
+- JSON output for scripting and API integration
+- Works out of the box with `multimon-ng` and `pocsag-decode`
+
+---
 
 ## Installation
 
 ```bash
-# Install encoder
+# Encoder
 go install github.com/sqpp/pocsag-golang/v2/cmd/pocsag@latest
 
-# Install decoder
+# Decoder
 go install github.com/sqpp/pocsag-golang/v2/cmd/pocsag-decode@latest
 
-# Install burst encoder (multiple messages)
+# Burst encoder (multiple messages at once)
 go install github.com/sqpp/pocsag-golang/v2/cmd/pocsag-burst@latest
 ```
 
@@ -34,50 +36,51 @@ Or build from source:
 git clone https://github.com/sqpp/pocsag-golang.git
 cd pocsag-golang
 make build
-# Binaries: bin/pocsag, bin/pocsag-decode, bin/pocsag-burst
+# Binaries land in: bin/pocsag, bin/pocsag-decode, bin/pocsag-burst
 ```
 
-Or without Make: `go build -o bin/pocsag ./cmd/pocsag` (and similarly for `pocsag-decode`, `pocsag-burst`).
+---
 
-## Usage
+## Encoder (`pocsag`)
 
-### Encoder
+Generate a POCSAG message as a WAV file.
 
-Generate POCSAG messages as WAV audio files.
+**Required:**
+- `-a` / `--address` — pager address (full 21-bit RIC/capcode, e.g. `1234567`)
+- `-m` / `--message` — the message text
 
-**Inputs (required):**
-- `--address` / `-a`: Pager address (RIC/capcode) – full 21-bit identity, e.g. 1234567. The encoder places the message in the correct frame (address % 8). Decoders typically display (address/8)×8.
-- `--message` / `-m`: Message text.
-
-**Inputs (optional):**
-- `--output` / `-o`: Output WAV path (default: `output.wav`)
-- `--function` / `-f`: `0` = numeric, `3` = alphanumeric (default: `3`)
-- `--baud` / `-b`: `512`, `1200`, or `2400` (default: `1200`)
-- `--encrypt` / `-e`: Enable AES-256 encryption
-- `--key` / `-k`: Encryption key (required if `--encrypt`)
-- `--json` / `-j`: Print result as JSON to stdout (no decode hint)
+**Optional:**
+- `-o` / `--output` — output WAV file (default: `output.wav`)
+- `-f` / `--function` — `0` = numeric, `3` = alphanumeric (default: `3`)
+- `-b` / `--baud` — baud rate: `512`, `1200`, or `2400` (default: `1200`)
+- `-e` / `--encrypt` — enable AES-256 encryption
+- `-k` / `--key` — encryption password (required with `-e`)
+- `-j` / `--json` — print result as JSON instead of human-readable text
+- `-w` / `--waterfall` — save a waterfall spectrogram PNG of the signal
 
 **Examples:**
 
 ```bash
-# Alphanumeric (decode with pocsag-decode or multimon-ng)
-pocsag --address 123456 --message "HELLO WORLD" --output message.wav
+# Basic message
 pocsag -a 123456 -m "HELLO WORLD" -o message.wav
 
-# Numeric (512 baud)
-pocsag --address 999888 --message "0123456789" --function 0 --baud 512 --output numeric.wav
+# Numeric at 512 baud
+pocsag -a 999888 -m "0123456789" -f 0 -b 512 -o numeric.wav
 
-# 2400 baud
-pocsag --address 123456 --message "FAST MSG" --baud 2400 --output fast.wav
+# Fast 2400 baud
+pocsag -a 123456 -m "FAST MSG" -b 2400 -o fast.wav
 
-# Encrypted (AES-256)
-pocsag --address 123456 --message "SECRET MESSAGE" --encrypt --key "mysecretkey" --output encrypted.wav
+# With encryption
+pocsag -a 123456 -m "SECRET" -e -k "mypassword" -o encrypted.wav
 
-# JSON output (for APIs)
-pocsag -a 123456 -m "TEST API" -o test.wav --json
+# With waterfall image
+pocsag -a 123456 -m "HELLO WORLD" -o message.wav -w waterfall.png
+
+# JSON output (great for scripts)
+pocsag -a 123456 -m "TEST" -o test.wav --json
 ```
 
-**Human-readable output (default):**
+**Normal output:**
 ```
 ✅ Generated message.wav
    Address: 123456, Function: 3, Baud: 1200, Message: HELLO WORLD
@@ -85,7 +88,7 @@ pocsag -a 123456 -m "TEST API" -o test.wav --json
 Decode: pocsag-decode -i message.wav  or  multimon-ng -t wav -a POCSAG1200 message.wav
 ```
 
-**JSON output (`--json`):**
+**JSON output:**
 ```json
 {
   "success": true,
@@ -100,61 +103,42 @@ Decode: pocsag-decode -i message.wav  or  multimon-ng -t wav -a POCSAG1200 messa
 }
 ```
 
-### Decoder
+---
 
-Decode POCSAG messages from WAV files (from `pocsag` or `pocsag-burst`).
+## Decoder (`pocsag-decode`)
 
-**Inputs:**
-- `--input` / `-i`: Input WAV file - **REQUIRED**
-- `--baud` / `-b`: `512`, `1200`, or `2400` (default: `1200`)
-- `--json` / `-j`: Output JSON to stdout instead of human-readable lines
-- `--version` / `-v`: Show version and exit
+Decode a POCSAG WAV back to text.
 
-**Examples:**
+**Options:**
+- `-i` / `--input` — input WAV file (required)
+- `-b` / `--baud` — baud rate to try (default: `1200`)
+- `-k` / `--key` — decryption password (if the message is encrypted)
+- `-j` / `--json` — JSON output
+- `-v` / `--version` — show version info
+
 ```bash
-pocsag-decode --input message.wav
 pocsag-decode -i message.wav
-
-pocsag-decode -i message.wav --baud 512
 pocsag-decode -i message.wav -b 2400
-
+pocsag-decode -i encrypted.wav -k "mypassword"
 pocsag-decode -i message.wav --json
 ```
 
-**Human-readable output:**
+**Output:**
 ```
 POCSAG1200: Decoded messages:
 Address:  123456  Function: 3  ALPHA    Message: HELLO WORLD
 ```
 
-**JSON output (`--json`):**
-```json
-{
-  "success": true,
-  "messages": [
-    {
-      "address": 123456,
-      "function": 3,
-      "message": "HELLO WORLD",
-      "type": "alphanumeric"
-    }
-  ],
-  "baud": 1200
-}
-```
+---
 
-If no messages are found (human-readable): `No messages found (tried 1200 baud)`. With `--json`, `messages` is an empty array.
+## Burst Encoder (`pocsag-burst`)
 
-### Burst Encoder (Multiple Messages)
+Pack multiple messages for different pagers into a single WAV file.
 
-Encode multiple messages into one WAV (decode with **pocsag-decode** or **multimon-ng**).
-
-**Inputs:**
-- `--json` / `-j`: Path to JSON file with message array - **REQUIRED**
-- `--output` / `-o`: Output WAV path (default: `burst.wav`)
-- `--baud` / `-b`: `512`, `1200`, or `2400` (default: `1200`)
-- `--json-output` / `-jo`: Print result as JSON to stdout
-- `--version` / `-v`: Show version and exit
+**Options:**
+- `-j` / `--json` — path to a JSON file listing the messages (required)
+- `-o` / `--output` — output WAV file (default: `burst.wav`)
+- `-b` / `--baud` — baud rate (default: `1200`)
 
 **Input JSON format:**
 ```json
@@ -164,230 +148,112 @@ Encode multiple messages into one WAV (decode with **pocsag-decode** or **multim
   {"address": 345678, "message": "0123456789", "function": 0}
 ]
 ```
-- `address`: Pager address (RIC/capcode), full 21-bit value
-- `message`: Message text
-- `function`: `0` = numeric, `3` = alphanumeric
 
-**Examples:**
 ```bash
-pocsag-burst --json messages.json --output burst.wav
 pocsag-burst -j messages.json -o burst.wav
 pocsag-burst -j messages.json -b 512 -o burst.wav
-pocsag-burst -j messages.json --json-output
 ```
 
-**Human-readable output:**
-```
-✅ Generated burst with 3 messages: burst.wav (baud: 1200)
-   1. Address: 123456, Type: ALPHA, Message: FIRST MESSAGE
-   2. Address: 789012, Type: ALPHA, Message: SECOND MESSAGE
-   3. Address: 345678, Type: NUMERIC, Message: 0123456789
-```
+---
 
-**JSON output (`--json-output`):**
-```json
-{
-  "success": true,
-  "output": "burst.wav",
-  "messages": [
-    {
-      "address": 123456,
-      "function": 3,
-      "message": "FIRST MESSAGE",
-      "type": "alphanumeric"
-    },
-    {
-      "address": 789012,
-      "function": 3,
-      "message": "SECOND MESSAGE",
-      "type": "alphanumeric"
-    }
-  ],
-  "baud": 1200,
-  "count": 2,
-  "size": 44844
-}
+## Waterfall spectrogram
+
+Pass `-w output.png` to the encoder and it generates a frequency×time spectrogram of the signal using an OpenGL 4.1 renderer. The image uses the PySDR colormap (dark blue → purple → red → yellow → white), which makes the FSK tones easy to spot even in a short transmission.
+
+This runs headless — no window pops up, it just writes the PNG and exits.
+
+```bash
+pocsag -a 123456 -m "HELLO" -o msg.wav -w waterfall.png
 ```
 
-## Library Usage
+There are two waterfall implementations in the library:
+- `waterfall.go` — pure Go/CPU, no GPU required, generates PNGs programmatically
+- `waterfall_gl.go` — OpenGL-accelerated, used by the CLI for better colour fidelity and real-time display
 
-Use the `v2` module: `github.com/sqpp/pocsag-golang/v2`.
-
-### Encoding
-
-```go
-package main
-
-import (
-    "os"
-    pocsag "github.com/sqpp/pocsag-golang/v2"
-)
-
-func main() {
-    // Create alphanumeric message (address = full 21-bit RIC/capcode)
-    packet := pocsag.CreatePOCSAGPacket(123456, "HELLO WORLD", pocsag.FuncAlphanumeric)
-
-    wavData := pocsag.ConvertToAudio(packet)
-    os.WriteFile("output.wav", wavData, 0644)
-}
-```
-
-### Decoding
-
-Decode baseband WAVs (from `ConvertToAudio` or default `pocsag`/`pocsag-burst` output):
-
-```go
-package main
-
-import (
-    "fmt"
-    "os"
-    pocsag "github.com/sqpp/pocsag-golang/v2"
-)
-
-func main() {
-    wavData, _ := os.ReadFile("message.wav")
-    messages, err := pocsag.DecodeFromAudio(wavData)
-    if err != nil {
-        panic(err)
-    }
-    for _, msg := range messages {
-        fmt.Println(msg.String())
-    }
-}
-```
-
-## API Reference
-
-### Constants
-
-- `FuncNumeric` (0) - Numeric messages
-- `FuncAlphanumeric` (3) - Alphanumeric messages
-- `FrameSyncWord` (0x7CD215D8) - POCSAG frame sync
-- `IdleCodeword` (0x7A89C197) - Idle codeword
-
-### Encoding Functions
-
-- `CreatePOCSAGPacket(address uint32, message string, function uint8) []byte`
-- `CreatePOCSAGPacketWithBaudRate(address uint32, message string, function uint8, baudRate int) []byte`
-  - Create a POCSAG packet (preamble, sync, address, message). Address is the full 21-bit RIC; codeword is placed in frame (address % 8) per ITU-R M.584-2.
-
-- `ConvertToAudio(pocsagData []byte) []byte`
-  - Baseband WAV (48 kHz, 16-bit PCM, mono) for **pocsag-decode**
-- `ConvertToAudioWithBaudRate(pocsagData []byte, baudRate int) []byte`
-  - Same, with explicit baud rate (512, 1200, 2400)
-
-- `EncodeAddress(address uint32, function uint8) uint32`
-  - Encodes an address codeword (BCH + parity). Uses 18 MSBs of the 21-bit address; caller must place it in frame (address % 8).
-
-- `Ascii7BitEncoder(message string) []byte`
-  - Encodes ASCII text to 7-bit format for alphanumeric messages
-
-- `NumericBCDEncoder(message string) []byte`
-  - Encodes numeric strings to BCD format (supports 0-9, space, -, [, ], U)
-
-### Decoding Functions
-
-- `DecodeFromAudio(wavData []byte) ([]DecodedMessage, error)` — default 1200 baud
-- `DecodeFromAudioWithBaudRate(wavData []byte, baudRate int) ([]DecodedMessage, error)` — 512, 1200, or 2400
-- `DecodeFromBinary(data []byte) ([]DecodedMessage, error)` — from raw POCSAG bytes
-- `DecodeReader(r io.Reader) ([]DecodedMessage, error)` — from an io.Reader (WAV)
-
-### Types
-
-```go
-type DecodedMessage struct {
-    Address   uint32
-    Function  uint8
-    Message   string
-    IsNumeric bool
-}
-```
+---
 
 ## Encryption
 
-POCSAG-GO supports modern encryption standards for secure communications:
-
-### Supported Encryption Methods
-
-- **AES-256**: Military-grade encryption (default)
-- **AES-128**: High-security encryption (alternative)
-- **CRC32 Integrity Verification**: Prevents message tampering
-- **Base64 Encoding**: Ensures POCSAG protocol compatibility
-
-### Security Features
-
-- 🔐 **Password-based key derivation** using SHA256 hashing
-- 🛡️ **Random IV generation** prevents replay attacks
-- ✅ **Message integrity verification** with CRC32 checksums
-- 🔄 **Backward compatibility** with non-encrypted messages
-
-### Encryption Process
+Messages can be encrypted with AES-256 before being packed into the POCSAG signal. The pipeline is:
 
 ```
-Original Message → Add CRC32 → AES-256 Encrypt → Base64 Encode → POCSAG Packet
+Message → CRC32 checksum → AES-256 encrypt → Base64 encode → POCSAG packet
 ```
 
-### Decryption Process
+The encryption uses a password you supply, hashed with SHA-256 to produce the key. A random IV is generated per message to prevent replay attacks. CRC32 is checked on decode to catch any corruption or wrong-key attempts.
 
-```
-POCSAG Packet → Base64 Decode → AES-256 Decrypt → Verify CRC32 → Original Message
-```
-
-### Usage Examples
+Encrypted messages appear as Base64 text in tools like `multimon-ng` that don't know about the encryption — they'll just show the raw ciphertext string.
 
 ```bash
-# Create encrypted message
-pocsag -a 123456 -m "SECRET MESSAGE" -e -k "mysecretkey" -o encrypted.wav
+# Encrypt
+pocsag -a 123456 -m "CONFIDENTIAL" -e -k "strongpassword" -o enc.wav
 
-# JSON output shows encryption status
-pocsag -a 123456 -m "SECRET MESSAGE" -e -k "mysecretkey" --json
+# Decrypt
+pocsag-decode -i enc.wav -k "strongpassword"
 ```
 
-**JSON output (`--json`) for encrypted message:** includes `"encrypted": true` and `"address"` (the RIC you passed).
+---
 
-### Security Notes
+## Using as a Go library
 
-- **Key Management**: Use strong, unique keys for each communication group
-- **Key Distribution**: Securely share keys with intended recipients
-- **Compatibility**: Encrypted messages appear as Base64-encoded data in multimon-ng
-- **Performance**: Encryption adds minimal overhead to message processing
+Import as `github.com/sqpp/pocsag-golang/v2`.
 
-## Testing with pocsag-decode and multimon-ng
+**Encode and write a WAV:**
+```go
+import pocsag "github.com/sqpp/pocsag-golang/v2"
 
-The default WAV output works with both decoders:
-
-```bash
-pocsag -a 123456 -m "HELLO" -o msg.wav
-pocsag-decode -i msg.wav
-multimon-ng -t wav -a POCSAG1200 msg.wav
+packet := pocsag.CreatePOCSAGPacket(123456, "HELLO WORLD", pocsag.FuncAlphanumeric)
+wavData := pocsag.ConvertToAudio(packet)
+os.WriteFile("output.wav", wavData, 0644)
 ```
 
-- 512 baud: `multimon-ng -t wav -a POCSAG512 msg.wav`
-- 2400 baud: `multimon-ng -t wav -a POCSAG2400 msg.wav`
+**Decode a WAV:**
+```go
+wavData, _ := os.ReadFile("message.wav")
+messages, err := pocsag.DecodeFromAudio(wavData)
+for _, msg := range messages {
+    fmt.Println(msg.String())
+}
+```
 
-**Addresses:** The address is the full 21-bit RIC/capcode (pager number). The encoder places the codeword in the correct frame (address % 8). Decoders (e.g. multimon-ng) typically display (address/8)×8, so e.g. 1234567 may show as 1234560.
+**Key functions:**
 
-## Integration Testing
+| Function | Description |
+|----------|-------------|
+| `CreatePOCSAGPacket(addr, msg, fn)` | Encode a message at 1200 baud |
+| `CreatePOCSAGPacketWithBaudRate(addr, msg, fn, baud)` | Encode at a specific baud rate |
+| `ConvertToAudio(data)` | Convert to WAV bytes (1200 baud) |
+| `ConvertToAudioWithBaudRate(data, baud)` | Convert to WAV at specific baud |
+| `DecodeFromAudio(wavData)` | Decode a WAV (assumes 1200 baud) |
+| `DecodeFromAudioWithBaudRate(wavData, baud)` | Decode at specific baud |
+| `DecodeFromBinary(data)` | Decode raw POCSAG bytes |
 
-The project includes an exhaustive integration test suite that verifies encoding and decoding across all supported configurations.
+---
+
+## Testing
 
 ```bash
-# Run all tests (requires multimon-ng in WSL if on Windows)
 go test -v ./...
 ```
 
-The test suite covers:
-- **Matrix Testing**: All combinations of 512, 1200, 2400 baud with Alpha, Numeric, and Encrypted types.
-- **Long Messages**: Validates zero-drift synchronization with 500-character test cases.
-- **Burst Mode**: Verifies multiple messages for different RICs in a single transmission.
-- **Cross-Engine Check**: Validates internal decoding against `multimon-ng` in real-time.
+The integration test suite covers every combination of baud rate (512, 1200, 2400) and message type (alpha, numeric, encrypted), including 500-character long messages, burst transmissions, and cross-validation against `multimon-ng`.
+
+> If you're on Windows and want the `multimon-ng` cross-check to run, have it available in WSL.
+
+---
+
+## About addresses
+
+POCSAG addresses are full 21-bit RIC/capcodes. The encoder places each message codeword in the correct frame within the burst (`address % 8`), which is required by ITU-R M.584-2.
+
+Tools like `multimon-ng` typically display `(address / 8) * 8`, so an address of `1234567` will show up as `1234560` in their output — that's expected.
+
+---
 
 ## Credits
 
-Encoder ported from [pocsag-tool](https://github.com/hazardousfirmware/pocsag-tool) by hazardousfirmware.
+Encoder originally ported from [pocsag-tool](https://github.com/hazardousfirmware/pocsag-tool) by hazardousfirmware.
 
 ## License
 
-BSD-2-Clause (same as original pocsag-tool)
-
+BSD-2-Clause

@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/binary"
 	"math"
+	"math/rand"
+	"time"
 )
 
 const (
@@ -148,29 +150,31 @@ func createWAVFile(samples []int16) []byte {
 func GenerateFSKSamples(pocsagData []byte, baudRate int) []int16 {
 	samplesPerBit := float64(SampleRate) / float64(baudRate)
 	numBits := len(pocsagData) * 8
-	numSamples := int(float64(numBits) * samplesPerBit)
+	messageSamples := int(float64(numBits) * samplesPerBit)
+
+	// Add noise padding so the waterfall is filled, not empty (black)
+	prePadSamples := int(0.5 * SampleRate)
+	postPadSamples := int(1.5 * SampleRate)
+	numSamples := prePadSamples + messageSamples + postPadSamples
 
 	// Interleaved IQ: 2 values per sample
 	samples := make([]int16, numSamples*2)
 
 	// RF simulation parameters
-	const carrierFreq = 12000.0   // Center carrier at 12 kHz
+	const carrierFreq = 0.0       // Center carrier at DC (0 Hz) like real SDR IQ data
 	const deviation = 4500.0      // FSK deviation (±4.5 kHz for POCSAG)
-	const signalAmplitude = 15000 // Strong signal
-	const noiseAmplitude = 2000   // RF noise floor (MUST be visible as blue background)
+	const signalAmplitude = 18000 // Strong signal
+	const noiseAmplitude = 250    // RF noise floor
 
 	carrierPhase := 0.0
-	noisePhase1 := 0.0
-	noisePhase2 := 0.0
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 
 	// FIRST PASS: Generate RF noise floor for ALL samples (creates blue background everywhere)
 	for i := 0; i < numSamples; i++ {
 		// Wideband RF noise on both I and Q channels
-		noisePhase1 += 0.123456
-		noisePhase2 += 0.789012
-
-		noiseI := noiseAmplitude * math.Sin(noisePhase1*123.456)
-		noiseQ := noiseAmplitude * math.Cos(noisePhase2*456.789)
+		// We want a floor around -70 to -80 dB
+		noiseI := (r.Float64()*2 - 1) * noiseAmplitude
+		noiseQ := (r.Float64()*2 - 1) * noiseAmplitude
 
 		samples[i*2] = int16(noiseI)   // I noise
 		samples[i*2+1] = int16(noiseQ) // Q noise
@@ -183,23 +187,23 @@ func GenerateFSKSamples(pocsagData []byte, baudRate int) []int16 {
 			bit := (b >> bitPos) & 1
 
 			// Frequency deviation based on bit value
-			var freqOffset float64
+			var targetDev float64
 			if bit == 1 {
-				freqOffset = deviation // +4.5 kHz
+				targetDev = deviation // +4.5 kHz
 			} else {
-				freqOffset = -deviation // -4.5 kHz
+				targetDev = -deviation // -4.5 kHz
 			}
 
 			// Generate IQ samples for this bit and ADD to existing noise
 			bitIndex := byteIdx*8 + (7 - bitPos)
-			startIdx := int(float64(bitIndex) * samplesPerBit)
-			endIdx := int(float64(bitIndex+1) * samplesPerBit)
+			startIdx := prePadSamples + int(float64(bitIndex)*samplesPerBit)
+			endIdx := prePadSamples + int(float64(bitIndex+1)*samplesPerBit)
 
 			for sampleIdx := startIdx; sampleIdx < endIdx; sampleIdx++ {
 				iqIdx := sampleIdx * 2
 
-				// Instantaneous frequency
-				instantFreq := carrierFreq + freqOffset
+				// FSK in POCSAG is instantaneous, with natural smoothing coming purely from the hardware/FFT windowing
+				instantFreq := carrierFreq + targetDev
 				carrierPhase += 2.0 * math.Pi * instantFreq / float64(SampleRate)
 
 				// Keep phase wrapped

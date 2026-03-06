@@ -13,24 +13,30 @@ import (
 type WaterfallConfig struct {
 	Width      int     // Width of output image (time axis)
 	Height     int     // Height of output image (frequency axis)
-	FFTSize    int     // FFT window size
+	FFTSize    int     // FFT window size (zero-padded) for high frequency resolution
 	Overlap    float64 // Overlap between FFT windows (0.0 to 1.0)
 	MinFreq    float64 // Minimum frequency to display (Hz)
 	MaxFreq    float64 // Maximum frequency to display (Hz)
 	SampleRate int     // Audio sample rate
+	Colormap   string  // Colormap to use ("pysdr" or "legacy")
 }
 
+const (
+	ColormapPySDR  = "pysdr"
+	ColormapLegacy = "legacy"
+)
+
 // DefaultWaterfallConfig returns sensible defaults for POCSAG FSK waterfall
-// Configured to look like an SDR waterfall with RF carrier
 func DefaultWaterfallConfig() WaterfallConfig {
 	return WaterfallConfig{
-		Width:      1200,  // Width for time axis
-		Height:     400,   // Height for frequency display
-		FFTSize:    4096,  // Large FFT for high frequency resolution (like SDR apps)
-		Overlap:    0.95,  // Very high overlap (95%) for smooth SDR-style display
-		MinFreq:    0,     // Show full spectrum from 0
-		MaxFreq:    24000, // Up to 24 kHz (Nyquist frequency)
+		Width:      1024, // MUST match FFTSize to avoid texture scaling issues in OpenGL
+		Height:     600,  // Taller waterfall for better scrolling view
+		FFTSize:    4096, // Large 4096 array padded with zeros for very high frequency resolution
+		Overlap:    0.95,
+		MinFreq:    -24000, // Show full spectrum (real SDR baseband)
+		MaxFreq:    24000,
 		SampleRate: SampleRate,
+		Colormap:   ColormapPySDR,
 	}
 }
 
@@ -55,10 +61,19 @@ func GenerateWaterfall(samples []int16, config WaterfallConfig) (image.Image, er
 		numWindows = 1
 	}
 
-	// Calculate frequency bins
-	freqBinSize := float64(config.SampleRate) / float64(config.FFTSize)
-	minBin := int(config.MinFreq / freqBinSize)
-	maxBin := int(config.MaxFreq / freqBinSize)
+	// For baseband I/Q, frequencies range from -fs/2 to +fs/2
+	// After FFT shift, index 0 is -fs/2, and index FFTSize is +fs/2
+	freqBinSize := float64(config.SampleRate) / float64(config.FFTSize) // e.g. 48000/1024 = 46.8Hz
+
+	// Map actual frequencies to shifted FFT bin indices
+	// -fs/2 -> bin 0. 0Hz -> bin N/2, +fs/2 -> bin N
+	halfFs := float64(config.SampleRate) / 2.0
+	minBin := int((config.MinFreq + halfFs) / freqBinSize)
+	maxBin := int((config.MaxFreq + halfFs) / freqBinSize)
+
+	if minBin < 0 {
+		minBin = 0
+	}
 	if maxBin > config.FFTSize {
 		maxBin = config.FFTSize
 	}
@@ -67,12 +82,13 @@ func GenerateWaterfall(samples []int16, config WaterfallConfig) (image.Image, er
 	// Create output image
 	img := image.NewRGBA(image.Rect(0, 0, config.Width, config.Height))
 
-	// Define dB range for display (SDR-style with high contrast)
-	const minDB = -80.0 // Noise floor threshold for blue background
-	const maxDB = -20.0 // Peak signals (yellow/red)
+	// Define dB range for display
+	// FSK signals are generated very strong to hit near 0 dB
+	const minDB = -90.0 // Noise floor threshold for dark blue background
+	const maxDB = 0.0   // Peak signals (red/white)
 	const dbRange = maxDB - minDB
 
-	// Process each time window and draw directly
+	// Process each time window (Y axis) and draw its frequency bins (X axis)
 	for windowIdx := 0; windowIdx < numWindows; windowIdx++ {
 		startIdx := windowIdx * stepSize
 		endIdx := startIdx + config.FFTSize
@@ -82,13 +98,20 @@ func GenerateWaterfall(samples []int16, config WaterfallConfig) (image.Image, er
 
 		// Extract window and apply Hann window to complex samples
 		window := make([]complex128, config.FFTSize)
+
 		for i := 0; i < config.FFTSize; i++ {
+			// Apply Hann window to smoothly taper the edges of this small chunk
 			hannWeight := 0.5 * (1.0 - math.Cos(2.0*math.Pi*float64(i)/float64(config.FFTSize-1)))
 			window[i] = complexSamples[startIdx+i] * complex(hannWeight, 0)
 		}
 
 		// Perform complex FFT manually (Cooley-Tukey algorithm)
-		coeffs := complexFFT(window)
+		coeffs := ComplexFFT(window)
+
+		// Normalize FFT by window size (not FFT size) because the power only exists there
+		for i := range coeffs {
+			coeffs[i] /= complex(float64(config.FFTSize), 0)
+		}
 
 		// FFT shift: rearrange so DC is in center and spectrum goes from -fs/2 to +fs/2
 		shifted := make([]complex128, len(coeffs))
@@ -97,21 +120,23 @@ func GenerateWaterfall(samples []int16, config WaterfallConfig) (image.Image, er
 			shifted[i] = coeffs[(i+half)%len(coeffs)]
 		}
 
-		// Calculate X position range - fill multiple columns per window for continuous display
-		xStart := windowIdx * config.Width / numWindows
-		xEnd := (windowIdx + 1) * config.Width / numWindows
-		if xEnd > config.Width {
-			xEnd = config.Width
+		// Calculate Y position range (Time flows downward)
+		// Y=0 is oldest (start of WAV), Y=config.Height is newest (end of WAV)
+		yStart := windowIdx * config.Height / numWindows
+		yEnd := (windowIdx + 1) * config.Height / numWindows
+		if yEnd > config.Height {
+			yEnd = config.Height
 		}
-		if xStart >= config.Width {
-			xStart = config.Width - 1
+		if yStart >= config.Height {
+			yStart = config.Height - 1
 		}
 
-		// Process each frequency bin
-		for i := 0; i < numBins; i++ {
-			binIdx := minBin + i
+		// Process each frequency bin mapped to X axis
+		for x := 0; x < config.Width; x++ {
+			// Find corresponding frequency bin
+			binIdx := minBin + (x * numBins / config.Width)
 			if binIdx >= len(shifted) {
-				break
+				binIdx = len(shifted) - 1
 			}
 
 			// Calculate power spectrum density (magnitude squared)
@@ -127,20 +152,11 @@ func GenerateWaterfall(samples []int16, config WaterfallConfig) (image.Image, er
 				normalized = 1
 			}
 
-			// Y axis: low frequencies at bottom, high at top
-			y := config.Height - 1 - (i * config.Height / numBins)
-			if y < 0 {
-				y = 0
-			}
-			if y >= config.Height {
-				y = config.Height - 1
-			}
-
 			// Apply smooth color map
-			c := getWaterfallColor(normalized)
+			c := getWaterfallColor(normalized, config.Colormap)
 
-			// Fill the entire x range for this window (makes continuous bands instead of dots)
-			for x := xStart; x < xEnd; x++ {
+			// Draw block (thick horizontal line for this time slice)
+			for y := yStart; y < yEnd; y++ {
 				img.Set(x, y, c)
 			}
 		}
@@ -149,8 +165,8 @@ func GenerateWaterfall(samples []int16, config WaterfallConfig) (image.Image, er
 	return img, nil
 }
 
-// complexFFT performs FFT on complex input using Cooley-Tukey algorithm
-func complexFFT(x []complex128) []complex128 {
+// ComplexFFT performs FFT on complex input using Cooley-Tukey algorithm
+func ComplexFFT(x []complex128) []complex128 {
 	n := len(x)
 	if n <= 1 {
 		return x
@@ -165,8 +181,8 @@ func complexFFT(x []complex128) []complex128 {
 	}
 
 	// Conquer
-	even = complexFFT(even)
-	odd = complexFFT(odd)
+	even = ComplexFFT(even)
+	odd = ComplexFFT(odd)
 
 	// Combine
 	result := make([]complex128, n)
@@ -179,9 +195,75 @@ func complexFFT(x []complex128) []complex128 {
 	return result
 }
 
-// getWaterfallColor returns a color based on intensity (0.0 to 1.0)
-// Implements a smooth, continuous colormap: dark blue -> blue -> cyan -> green -> yellow -> red -> white
-func getWaterfallColor(intensity float64) color.Color {
+// getWaterfallColor returns a color based on intensity (0.0 to 1.0) and chosen colormap
+func getWaterfallColor(intensity float64, theme string) color.Color {
+	if theme == ColormapLegacy {
+		return getLegacyColor(intensity)
+	}
+	return getPySDRColor(intensity)
+}
+
+// getPySDRColor implements the colormap from the MLAB PySDR project.
+// It maps intensity to a Blue -> Purple -> Red -> Yellow -> White scale.
+func getPySDRColor(intensity float64) color.Color {
+	// Clamp intensity
+	if intensity < 0 {
+		intensity = 0
+	}
+	if intensity > 1 {
+		intensity = 1
+	}
+
+	// Map 0..1 to the PySDR "a" range: -1.75 to 2.0
+	// a = -1.75 is background (black/dark blue)
+	// a = 2.0 is peak signal (white)
+	a := intensity*3.75 - 1.75
+
+	r := clamp(a+1.0, 0.0, 1.0)
+	g := clamp(a, 0.0, 1.0)
+	b := mag2colBase2Blue(a - 1.0)
+
+	return color.RGBA{
+		R: uint8(r * 255),
+		G: uint8(g * 255),
+		B: uint8(b * 255),
+		A: 255,
+	}
+}
+
+// mag2colBase2Blue is the blue channel logic from PySDR's mag2col
+func mag2colBase2Blue(val float64) float64 {
+	if val <= -2.75 {
+		return 0.0
+	}
+	if val <= -1.75 {
+		return val + 2.75
+	}
+	if val <= -0.75 {
+		return -(val + 0.75)
+	}
+	if val <= 0.0 {
+		return 0.0
+	}
+	if val >= 1.0 {
+		return 1.0
+	}
+	return val
+}
+
+// clamp helper
+func clamp(val, min, max float64) float64 {
+	if val < min {
+		return min
+	}
+	if val > max {
+		return max
+	}
+	return val
+}
+
+// getLegacyColor returns the original colormap: dark blue -> blue -> cyan -> green -> yellow -> red -> white
+func getLegacyColor(intensity float64) color.Color {
 	// Clamp intensity
 	if intensity < 0 {
 		intensity = 0

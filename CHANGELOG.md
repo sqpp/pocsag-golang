@@ -1,118 +1,97 @@
 # Changelog
 
-All notable changes to this project are documented in this file.
+All notable changes are documented here.
+Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+---
+
+## [2.3.0] - 2026-03-06
+
+### OpenGL Waterfall (GPU-accelerated spectrogram)
+
+The waterfall visualisation got a serious upgrade. Instead of drawing pixels in software like before, it now uses OpenGL 4.1 to render the spectrogram directly on the GPU — which means it's fast, smooth, and can handle real-time scrolling without breaking a sweat.
+
+
+- **GPU-powered rendering** via OpenGL 4.1. Each FFT row is uploaded as a floating-point texture and coloured on the GPU using the PySDR colormap shader — the same gradient you'd see in SDR++ or GQRX (dark blue → purple → red → yellow → white).
+- **Headless PNG export** — pass `-w waterfall.png` to the CLI and it creates a full spectrogram image without ever showing a window. Useful for scripts or CI pipelines.
+- **Calibrated colormap** — the dB-to-colour mapping is now calculated from actual measured FFT power levels of synthetic POCSAG signals (rather than guessing), so the background sits in dark blue and signal peaks hit yellow/white as expected.
+
+---
 
 ## [2.2.2] - 2026-03-05
 
-### Added
-- **Exhaustive Integration Test Suite:** Added `integration_test.go` which exhaustively verifies all baud rates (512, 1200, 2400) and message types (Alpha, Numeric, Encrypted) against both the internal decoder and `multimon-ng`.
-- **Long Message Support:** Validated internal decoder synchronization with 500-character messages (over 3500 bits) across all baud rates.
-- **Bit-Aware Decoding:** The decoder now scans the demodulated bitstream bit-by-bit for the POCSAG sync word, eliminating synchronization failures previously caused by byte-alignment shifts mid-transmission.
+### Solid integration tests and a much more reliable decoder
 
-### Fixed
-- **Sub-Sample Index Precision:** Switched to cumulative `math.Round` logic for both encoding and decoding to ensure zero timing drift over extended transmissions.
-- **2400 Baud Stability:** Dramatic improvement in high-baud reliability by combining high-precision sampling with bit-aware sync detection.
-- **BCH Hallucination Filtering:** Added strict BCH(31,21) and even parity validation to the decoding loop, preventing corrupted noise from being interpreted as valid messages.
-- **Burst Encoder State Tracker:** Fixed a bug where multiple messages in a burst would overwrite each other. The encoder now correctly maintains batch/frame state when appending messages.
-- **LiveDecode Truncation:** Fixed an integer truncation bug in `DecodeFromLiveStreamWithDecryption` that caused gradual drift and decoding failure in long recordings.
+- Wrote an exhaustive integration test suite (`integration_test.go`) that tests every combination of baud rate and message type — including 500-character messages — against both the internal decoder and `multimon-ng`.
+- The decoder now scans bit-by-bit for the POCSAG sync word instead of assuming byte alignment. This killed a whole class of sync failures that happened when a byte boundary happened to fall in the middle of the preamble.
+- Fixed subtle timing drift in both the encoder and decoder by switching to cumulative `math.Round` logic instead of truncating sample indices per-bit. At 2400 baud over long messages this was causing real problems.
+- Added BCH(31,21) and parity validation to the decode loop so corrupted noise can't sneak through as a valid message anymore.
+- Fixed a burst encoder bug where encoding multiple messages at once would cause them to overwrite each other's state.
+- Fixed an integer truncation bug in `DecodeFromLiveStreamWithDecryption` that caused gradual drift on long recordings.
+
+---
 
 ## [2.2.1]
 
-### Added
-- **Demodulation Robustness:** Multi-strategy approach implemented to automatically detect and handle ideal baseband, flat DC offsets, and heavy DC drift over time.
-- **DPLL Digital Clock Recovery:** A Phase-Locked Loop (DPLL) algorithm was added to the baseband decoder to detect bit-boundaries at zero crossings and re-align sampling phase, drastically improving resistance to clock drift in real-world recordings.
-- **`pocsag-decode` End-to-End Decryption:** `pocsag-decode` now natively supports AES 256 CBC decryption matching the `pocsag-encode` utility! You can pass a plain-text password using the `-k` or `--key` flags to decode encrypted files.
+### DPLL clock recovery and end-to-end decryption
 
-### Fixed
-- **Multi-Batch Burst Truncation:** Fixed a major bug in `DecodeFromBinaryLiveStream` where POCSAG bursts containing multiple 16-codeword batches were incorrectly truncated after the first batch. The decoder now properly counts 16 codewords per batch, expects intermediate `FrameSyncWord` markers, and continues decoding the entire physical transmission instead of dropping up to 80% of it. This restored hidden messages in real-world recordings and allowed Base64 padding to survive the decoding process.
-- **Base64 Padding Repair:** Fixed decryption failing silently due to POCSAG truncating or padding encoded messages with space/NUL/ETX characters. Base64 encoded cipher-texts are now trimmed and reconstructed with correctly padded `=` sequences before being handed to `decryptAES`.
-- **Address Re-Construction:** Re-wrote the address codeword logic to correctly bitwise OR the base-address with the current batch frame-index, restoring correct RIC addresses. The final decoded address is now also properly masked (`&= ^uint32(1 << 19)`) to match the standard 20-bit address formatting.
-- **Dynamic WAV Header Parsing:** Re-wrote the file loading logic in `DecodeFromLiveStreamWithDecryption` and the raw data parser to dynamically seek out the `"data"` subchunk instead of relying on a hardcoded 44 byte offset. WAV sample rates are now also dynamically parsed from the header.
+- Added a Phase-Locked Loop (DPLL) to the decoder for real-world clock recovery. It watches zero-crossings in the demodulated signal and nudges the sampling phase to stay in sync — makes a big difference with recordings that have any timing wander.
+- The decoder can now automatically detect and handle a DC offset or DC drift on the baseband signal, so you don't need to pre-process your recordings.
+- `pocsag-decode` now supports AES-256 decryption end-to-end. Pass `-k yourpassword` and it decrypts on the fly.
+
+**Also fixed a pretty embarrassing decoder bug:** POCSAG bursts with more than one 16-codeword batch were being silently truncated after the first batch. If you were decoding longer transmissions and only seeing part of the message, this was why. Fixed by properly counting codewords per batch and continuing through intermediate sync words.
+
+Other fixes: Base64 padding repair for encrypted messages, correct address reconstruction from batch frame indices, and dynamic WAV header parsing so files with non-standard offsets now work too.
+
+---
 
 ## [2.2.0] - 2026-02-20
 
-### Fixed
-- **POCSAG address (RIC/capcode) and frame placement** – Address handling now matches ITU-R M.584-2:
-  - Address is the full 21-bit RIC/capcode (pager identity); no longer normalized to a multiple of 8.
-  - Address codeword is placed in the correct frame (`address % 8`) within each batch (8 frames × 2 codewords). Previously all messages were effectively sent in frame 0, so pagers with addresses like 1234561–1234567 would not see their pages.
-  - `EncodeAddress` uses the full address (18 MSBs in the codeword); frame placement is done in `CreatePOCSAGBurstWithBaudRate`.
-- **Makefile LDFLAGS** – Version/build-time variables were not applied because the package path was `github.com/sqpp/pocsag-golang` instead of `github.com/sqpp/pocsag-golang/v2`. LDFLAGS now use the correct `/v2` path so `pocsag --version` shows real Build Time, Git Commit, and Build Architecture.
+### Correct POCSAG addressing (finally matches the spec)
 
-### Changed
-- **CLI** – Encoder no longer normalizes the address; the value you pass is the full RIC and is used as-is. Decoders (e.g. multimon-ng, pocsag-decode) typically display `(address/8)×8`. Default WAV output works with both pocsag-decode and multimon-ng.
-- **README** – Updated encoder/decoder/burst inputs and outputs, address/RIC description, burst example, installation paths (`/v2`), and testing section (default output works with both decoders).
+Turned out the address handling wasn't quite right. POCSAG uses a full 21-bit RIC/capcode, and the message codeword has to go into a specific frame within the burst (`address % 8`). We were putting everything in frame 0, which meant pagers with addresses like 1234561–1234567 wouldn't receive anything. Fixed.
+
+Also fixed the Makefile LDFLAGS so `pocsag --version` actually shows real build info (commit hash, timestamp, arch) instead of placeholder strings.
 
 ---
 
 ## [2.1.1] - 2025-12-16
 
-### Changed
-- Fix release workflow to avoid concurrent git operations (`7504b46`).
-- Fix Go version in GitHub Actions workflow (`28ea3e6`).
-
-### Added
-- FSK waterfall support (`3b2fd8c`).
-- Waterfall restructure (`59c7dd0`).
-
-### Fixed
-- Audio fixes (`2067ea8`).
-- WAV file headers for Firefox compatibility (`7338442`).
-- go.mod fixes (`597e14f`, `3f4bf6a`).
+- Fixed the GitHub Actions release workflow (concurrent git ops were causing flaky builds).
+- Added initial FSK waterfall visualisation support.
+- Fixed WAV headers for Firefox compatibility.
 
 ---
 
 ## [2.1.0] - 2025-10-26
 
-### Added
-- Comprehensive build-time version information (`f80b01c`).
-- Binary architecture details in version info (`c2ae229`).
-- Dynamic version information with author and project URL (`3562510`).
-
-### Fixed
-- Makefile (`f743113`).
-
-### Changed
-- Version set to 2.1.0 (`6bc7361`).
-- README update for 2.0.0 (`4bf6e3c`).
+- Added proper build-time version info: binary now knows its own version, git commit, build time, and architecture.
 
 ---
 
 ## [2.0.0] - 2025-10-26
 
-### Added
-- POCSAG encryption support (AES-256/AES-128) (`777a132`).
-- Support for POCSAG 512 and 2400 baud (`396120a`).
-- Automatic release workflow (`2bf3fa7`).
-- GitHub Actions: build each command separately (`aa7c74b`), Go version 1.22 (`e3bb050`).
-- Note about POCSAG address format (multiples of 8) (`6e9d479`).
-- Burst mode: multiple messages in one transmission (`2ff11cd`).
-- Burst mode documentation in README (`5fdc5a8`).
-- GitHub Actions go.yml (`7011e8c`).
-- JSON output support for API integration (`4795b78`).
-- JSON output documentation and examples in README (`5106879`, `7fefae2`).
+Big feature release:
 
-### Fixed
-- GitHub Actions cache issues for projects without dependencies (`ec8947a`).
-- go.yml: setup-go@v5 with 1.22.x (`5034e65`).
-- Long message truncation bug (`91d3de5`).
-- Numeric message termination (`de625ba`).
-
-### Removed
-- pocsag-burst (temporary removal in `2e8cda3`; later re-added).
+- **AES-256/AES-128 encryption** for secure messages.
+- **Multi-baud support** — 512 and 2400 baud added alongside 1200.
+- **Burst mode** — encode multiple messages for different pagers into one WAV.
+- **JSON output** for easy API and script integration.
+- Automatic GitHub Actions release workflow.
 
 ---
 
 ## [1.5.0] and earlier
 
-- Command-line tools (`8984b22`).
-- Module path fix (marcell → sqpp) (`32ce594`).
-- Initial commit: POCSAG encoder and decoder (`f72e0a6`).
+- Command-line tools, initial encoder/decoder, module path fix.
+- See `git log --oneline` for the full history.
 
-For full git history run: `git log --oneline`.
+---
 
-[2.2.0]: https://github.com/sqpp/pocsag-golang/compare/v2.1.1...HEAD
+[2.3.0]: https://github.com/sqpp/pocsag-golang/compare/v2.2.2...HEAD
+[2.2.2]: https://github.com/sqpp/pocsag-golang/compare/v2.2.1...v2.2.2
+[2.2.1]: https://github.com/sqpp/pocsag-golang/compare/v2.2.0...v2.2.1
+[2.2.0]: https://github.com/sqpp/pocsag-golang/compare/v2.1.1...v2.2.0
 [2.1.1]: https://github.com/sqpp/pocsag-golang/compare/v2.1.0...v2.1.1
 [2.1.0]: https://github.com/sqpp/pocsag-golang/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/sqpp/pocsag-golang/compare/v1.5.0...v2.0.0
