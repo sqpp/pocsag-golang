@@ -5,7 +5,7 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [2.3.0] - 2026-03-06
+## [2.3.2] - 2026-03-06
 
 ### OpenGL Waterfall (GPU-accelerated spectrogram)
 
@@ -15,6 +15,7 @@ The waterfall visualisation got a serious upgrade. Instead of drawing pixels in 
 - **GPU-powered rendering** via OpenGL 4.1. Each FFT row is uploaded as a floating-point texture and coloured on the GPU using the PySDR colormap shader — the same gradient you'd see in SDR++ or GQRX (dark blue → purple → red → yellow → white).
 - **Headless PNG export** — pass `-w waterfall.png` to the CLI and it creates a full spectrogram image without ever showing a window. Useful for scripts or CI pipelines.
 - **Calibrated colormap** — the dB-to-colour mapping is now calculated from actual measured FFT power levels of synthetic POCSAG signals (rather than guessing), so the background sits in dark blue and signal peaks hit yellow/white as expected.
+- Build file fixes for GitHub actions.
 
 ---
 
@@ -88,7 +89,8 @@ Big feature release:
 
 ---
 
-[2.3.0]: https://github.com/sqpp/pocsag-golang/compare/v2.2.2...HEAD
+[2.3.2]: https://github.com/sqpp/pocsag-golang/compare/v2.3.0...v2.3.2
+[2.3.0]: https://github.com/sqpp/pocsag-golang/compare/v2.2.2...v2.3.0
 [2.2.2]: https://github.com/sqpp/pocsag-golang/compare/v2.2.1...v2.2.2
 [2.2.1]: https://github.com/sqpp/pocsag-golang/compare/v2.2.0...v2.2.1
 [2.2.0]: https://github.com/sqpp/pocsag-golang/compare/v2.1.1...v2.2.0

@@ -1,7 +1,7 @@
 # Makefile for POCSAG-GO
 # Builds all tools with dynamic version information
 
-VERSION ?= 2.3.0
+VERSION ?= 2.3.2
 BUILD_TIME := $(shell date -u '+%Y-%m-%d_%H:%M:%S')
 GIT_COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 BUILD_ARCH := $(shell go env GOOS)/$(shell go env GOARCH)

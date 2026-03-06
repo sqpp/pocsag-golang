@@ -1,4 +1,4 @@
-# POCSAG-GO v2.3.0
+# POCSAG-GO v2.3.2
 
 A complete Go implementation of the POCSAG pager protocol — encoder, decoder, and everything in between. Ported from [pocsag-tool](https://github.com/hazardousfirmware/pocsag-tool) and extended significantly.
 
