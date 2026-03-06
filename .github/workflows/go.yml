@@ -38,12 +38,20 @@ jobs:
       with:
         go-version: '1.22.x'
         cache: false
-    
+
+    # Install dependencies for integration tests and OpenGL builds (on linux-amd64 host only)
+    - name: Install dependencies
+      if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y multimon-ng libglfw3-dev libgles2-mesa-dev libx11-dev libxcursor-dev libxrandr-dev libxinerama-dev libxi-dev libxxf86vm-dev
+
     # Build each command separately
     - name: Cross-Compile
       env:
         GOOS: ${{ matrix.goos }}
         GOARCH: ${{ matrix.goarch }}
+        CGO_ENABLED: ${{ (matrix.goos == 'linux' && matrix.goarch == 'amd64') && '1' || '0' }}
       run: |
         mkdir -p dist
         EXT=""
@@ -52,6 +60,7 @@ jobs:
         fi
         
         # Build pocsag encoder
+        # CGO will be enabled ONLY on Linux-amd64 if the env var above works
         go build -v -o "dist/pocsag-${{ matrix.goos }}-${{ matrix.goarch }}${EXT}" ./cmd/pocsag
         
         # Build pocsag-decode decoder
@@ -63,6 +72,8 @@ jobs:
     # Run tests (only on linux-amd64 to save time)
     - name: Test
       if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
+      env:
+        CGO_ENABLED: 1
       run: go test -v ./...
       
     # Upload all binaries as artifacts
