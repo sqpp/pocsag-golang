@@ -7,7 +7,7 @@ import (
 
 // Version information - can be set at build time
 var (
-	Version    = "2.3.3"
+	Version    = "2.3.4"
 	BuildTime  = "unknown"
 	GitCommit  = "unknown"
 	Author     = "marcell"

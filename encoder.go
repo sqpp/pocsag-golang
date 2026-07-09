@@ -3,6 +3,7 @@ package pocsag
 import (
 	"bytes"
 	"fmt"
+	"strings"
 )
 
 const (
@@ -16,6 +17,9 @@ const (
 	FuncTone1        = 1
 	FuncTone2        = 2
 	FuncAlphanumeric = 3
+
+	PayloadTypeAlpha   = "alpha"
+	PayloadTypeNumeric = "numeric"
 )
 
 // BitReverse8 reverses bits in a byte - exact port from pocsag.c
@@ -235,9 +239,10 @@ func SplitMessageIntoFrames(encoded7bit []byte) []uint32 {
 
 // MessageInfo represents a single message to encode
 type MessageInfo struct {
-	Address  uint32
-	Message  string
-	Function uint8
+	Address     uint32
+	Message     string
+	Function    uint8
+	PayloadType string
 }
 
 // CreatePOCSAGPacket creates a complete POCSAG packet with a single message
@@ -246,9 +251,21 @@ func CreatePOCSAGPacket(address uint32, message string, function uint8) []byte {
 	return CreatePOCSAGBurst([]MessageInfo{{Address: address, Message: message, Function: function}})
 }
 
+// CreatePOCSAGPacketWithPayloadType creates a packet while selecting the
+// message encoding independently from the 2-bit function value.
+func CreatePOCSAGPacketWithPayloadType(address uint32, message string, function uint8, payloadType string) []byte {
+	return CreatePOCSAGBurst([]MessageInfo{{Address: address, Message: message, Function: function, PayloadType: payloadType}})
+}
+
 // CreatePOCSAGPacketWithBaudRate creates a complete POCSAG packet with a single message and specified baud rate
 func CreatePOCSAGPacketWithBaudRate(address uint32, message string, function uint8, baudRate int) []byte {
 	return CreatePOCSAGBurstWithBaudRate([]MessageInfo{{Address: address, Message: message, Function: function}}, baudRate)
+}
+
+// CreatePOCSAGPacketWithBaudRateAndPayloadType creates a packet at a specified
+// baud rate while selecting payload encoding independently from function bits.
+func CreatePOCSAGPacketWithBaudRateAndPayloadType(address uint32, message string, function uint8, baudRate int, payloadType string) []byte {
+	return CreatePOCSAGBurstWithBaudRate([]MessageInfo{{Address: address, Message: message, Function: function, PayloadType: payloadType}}, baudRate)
 }
 
 // CreatePOCSAGBurst creates a POCSAG packet with multiple messages (burst mode)
@@ -278,13 +295,28 @@ func CreatePOCSAGBurstWithEncryption(messages []MessageInfo, baudRate int, encry
 			return nil, fmt.Errorf("failed to encrypt message %d: %v", i, err)
 		}
 		encryptedMessages[i] = MessageInfo{
-			Address:  msg.Address,
-			Message:  encryptedMessage,
-			Function: msg.Function,
+			Address:     msg.Address,
+			Message:     encryptedMessage,
+			Function:    msg.Function,
+			PayloadType: msg.PayloadType,
 		}
 	}
 
 	return CreatePOCSAGBurstWithBaudRate(encryptedMessages, baudRate), nil
+}
+
+func messagePayloadType(msg MessageInfo) string {
+	switch strings.ToLower(strings.TrimSpace(msg.PayloadType)) {
+	case PayloadTypeNumeric:
+		return PayloadTypeNumeric
+	case PayloadTypeAlpha, "alphanumeric":
+		return PayloadTypeAlpha
+	default:
+		if msg.Function == FuncNumeric {
+			return PayloadTypeNumeric
+		}
+		return PayloadTypeAlpha
+	}
 }
 
 // CreatePOCSAGBurstWithBaudRate creates a POCSAG packet with multiple messages and specified baud rate.
@@ -316,7 +348,7 @@ func CreatePOCSAGBurstWithBaudRate(messages []MessageInfo, baudRate int) []byte 
 	for _, msg := range messages {
 		addressCW := EncodeAddress(msg.Address, msg.Function)
 		var messageCWs []uint32
-		if msg.Function == FuncNumeric {
+		if messagePayloadType(msg) == PayloadTypeNumeric {
 			messageCWs = splitNumericMessageIntoFrames(msg.Message)
 		} else {
 			encodedMessage := Ascii7BitEncoder(msg.Message)

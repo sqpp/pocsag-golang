@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"strings"
 )
 
 // DecodedMessage represents a decoded POCSAG message
@@ -293,6 +294,16 @@ func DecodeFromBitstream(bits []byte) ([]DecodedMessage, error) {
 
 // DecodeFromBinary decodes POCSAG from raw binary data
 func DecodeFromBinary(data []byte) ([]DecodedMessage, error) {
+	return decodeFromBinary(data, "")
+}
+
+// DecodeFromBinaryWithPayloadType decodes raw POCSAG bytes using an explicit
+// payload type instead of inferring numeric/alpha from the function bits.
+func DecodeFromBinaryWithPayloadType(data []byte, payloadType string) ([]DecodedMessage, error) {
+	return decodeFromBinary(data, normalizePayloadType(payloadType))
+}
+
+func decodeFromBinary(data []byte, payloadType string) ([]DecodedMessage, error) {
 	messages := make([]DecodedMessage, 0)
 
 	// Find first frame sync word
@@ -344,8 +355,8 @@ func DecodeFromBinary(data []byte) ([]DecodedMessage, error) {
 		if isAddress {
 			// If we have a pending message, process it first
 			if len(messageCodewords) > 0 && currentAddress != 0 {
-				msg := decodeMessage(messageCodewords, currentFunction)
-				messages = append(messages, DecodedMessage{Address: currentAddress, Function: currentFunction, Message: msg, IsNumeric: currentFunction == FuncNumeric})
+				msg, isNumeric := decodeMessageWithPayloadType(messageCodewords, currentFunction, payloadType)
+				messages = append(messages, DecodedMessage{Address: currentAddress, Function: currentFunction, Message: msg, IsNumeric: isNumeric})
 			}
 			messageCodewords = make([]uint32, 0) // Reset for new address
 
@@ -379,8 +390,8 @@ func DecodeFromBinary(data []byte) ([]DecodedMessage, error) {
 
 	// Process any leftover message at the end
 	if len(messageCodewords) > 0 && currentAddress != 0 {
-		msg := decodeMessage(messageCodewords, currentFunction)
-		messages = append(messages, DecodedMessage{Address: currentAddress, Function: currentFunction, Message: msg, IsNumeric: currentFunction == FuncNumeric})
+		msg, isNumeric := decodeMessageWithPayloadType(messageCodewords, currentFunction, payloadType)
+		messages = append(messages, DecodedMessage{Address: currentAddress, Function: currentFunction, Message: msg, IsNumeric: isNumeric})
 	}
 
 	return messages, nil
@@ -388,6 +399,11 @@ func DecodeFromBinary(data []byte) ([]DecodedMessage, error) {
 
 // decodeMessage decodes message from codewords
 func decodeMessage(codewords []uint32, function uint8) string {
+	msg, _ := decodeMessageWithPayloadType(codewords, function, "")
+	return msg
+}
+
+func decodeMessageWithPayloadType(codewords []uint32, function uint8, payloadType string) (string, bool) {
 	var bits []byte
 	for _, cw := range codewords {
 		// Extract the 20-bit data portion (bits 11-30)
@@ -399,10 +415,22 @@ func decodeMessage(codewords []uint32, function uint8) string {
 		}
 	}
 
-	if function == FuncNumeric {
-		return decodeNumericFromBits(bits)
+	isNumeric := payloadType == PayloadTypeNumeric || (payloadType == "" && function == FuncNumeric)
+	if isNumeric {
+		return decodeNumericFromBits(bits), true
 	}
-	return decodeAlphaFromBits(bits)
+	return decodeAlphaFromBits(bits), false
+}
+
+func normalizePayloadType(payloadType string) string {
+	switch strings.ToLower(strings.TrimSpace(payloadType)) {
+	case PayloadTypeNumeric:
+		return PayloadTypeNumeric
+	case PayloadTypeAlpha, "alphanumeric":
+		return PayloadTypeAlpha
+	default:
+		return ""
+	}
 }
 
 // decodeNumericFromBits decodes BCD numeric message from bitstream

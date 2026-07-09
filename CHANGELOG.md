@@ -5,6 +5,16 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [2.3.4] - 2026-07-09
+
+### Explicit payload encoding selection
+
+- Added explicit POCSAG payload-type APIs so callers can choose numeric BCD or alphanumeric packing independently from the transmitted 2-bit function value.
+- Added explicit decode support for callers that already know whether a received payload should be interpreted as numeric or alpha.
+- Kept legacy behavior for existing calls: function `0` still defaults to numeric payload encoding, and function `3` still defaults to alphanumeric.
+
+---
+
 ## [2.3.3] - 2026-07-09
 
 ### Numeric message padding fix
@@ -99,6 +109,7 @@ Big feature release:
 
 ---
 
+[2.3.4]: https://github.com/sqpp/pocsag-golang/compare/v2.3.3...v2.3.4
 [2.3.3]: https://github.com/sqpp/pocsag-golang/compare/v2.3.2...v2.3.3
 [2.3.2]: https://github.com/sqpp/pocsag-golang/compare/v2.3.0...v2.3.2
 [2.3.0]: https://github.com/sqpp/pocsag-golang/compare/v2.2.2...v2.3.0

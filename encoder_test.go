@@ -97,6 +97,23 @@ func TestNumericMessagesDoNotTransmitTerminator(t *testing.T) {
 	}
 }
 
+func TestPayloadTypeIndependentFromFunctionBits(t *testing.T) {
+	packet := CreatePOCSAGPacketWithPayloadType(1234567, "123124242", 1, PayloadTypeNumeric)
+	decoded, err := DecodeFromBinaryWithPayloadType(packet, PayloadTypeNumeric)
+	if err != nil {
+		t.Fatalf("DecodeFromBinaryWithPayloadType failed: %v", err)
+	}
+	if len(decoded) != 1 {
+		t.Fatalf("got %d messages, want 1: %v", len(decoded), decoded)
+	}
+	if decoded[0].Function != 1 {
+		t.Fatalf("function mismatch: got %d, want 1", decoded[0].Function)
+	}
+	if !decoded[0].IsNumeric || decoded[0].Message != "123124242" {
+		t.Fatalf("payload mismatch: got numeric=%v message=%q", decoded[0].IsNumeric, decoded[0].Message)
+	}
+}
+
 func TestExample(t *testing.T) {
 	// Generate example file like the C tool
 	packet := CreatePOCSAGPacket(4444, "Broadcast this on hackrf", FuncAlphanumeric)
