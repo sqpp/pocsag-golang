@@ -5,6 +5,16 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [2.3.3] - 2026-07-09
+
+### Numeric message padding fix
+
+- Fixed POCSAG numeric encoding so messages no longer transmit a fake `*` terminator.
+- Numeric payloads now pad unused 20-bit codeword space with spaces, preventing external decoders from showing trailing `*` or `0` characters.
+- Numeric `*` is now handled as a real supported character during encode/decode round trips.
+
+---
+
 ## [2.3.2] - 2026-03-06
 
 ### OpenGL Waterfall (GPU-accelerated spectrogram)
@@ -89,6 +99,7 @@ Big feature release:
 
 ---
 
+[2.3.3]: https://github.com/sqpp/pocsag-golang/compare/v2.3.2...v2.3.3
 [2.3.2]: https://github.com/sqpp/pocsag-golang/compare/v2.3.0...v2.3.2
 [2.3.0]: https://github.com/sqpp/pocsag-golang/compare/v2.2.2...v2.3.0
 [2.2.2]: https://github.com/sqpp/pocsag-golang/compare/v2.2.1...v2.2.2
