@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	pocsag "github.com/sqpp/pocsag-golang/v2"
 )
@@ -46,7 +47,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, `  [
     {"address": 123456, "message": "FIRST MESSAGE", "function": 3},
     {"address": 789012, "message": "SECOND MESSAGE", "function": 3},
-    {"address": 345678, "message": "0123456789", "function": 0}
+    {"address": 345678, "message": "0123456789", "function": 1, "payload_type": "numeric"}
   ]`)
 		os.Exit(1)
 	}
@@ -66,9 +67,10 @@ func main() {
 
 	// Parse JSON
 	type JSONMessage struct {
-		Address  uint32 `json:"address"`
-		Message  string `json:"message"`
-		Function uint8  `json:"function"`
+		Address     uint32 `json:"address"`
+		Message     string `json:"message"`
+		Function    uint8  `json:"function"`
+		PayloadType string `json:"payload_type"`
 	}
 	var jsonMessages []JSONMessage
 	err = json.Unmarshal(jsonData, &jsonMessages)
@@ -80,10 +82,16 @@ func main() {
 	// Convert to MessageInfo
 	messages := make([]pocsag.MessageInfo, len(jsonMessages))
 	for i, jm := range jsonMessages {
+		payloadType := normalizePayloadType(jm.PayloadType)
+		if jm.PayloadType != "" && payloadType == "" {
+			fmt.Fprintf(os.Stderr, "Error: Invalid payload_type for message %d. Supported types: numeric, alpha\n", i+1)
+			os.Exit(1)
+		}
 		messages[i] = pocsag.MessageInfo{
-			Address:  jm.Address,
-			Message:  jm.Message,
-			Function: jm.Function,
+			Address:     jm.Address,
+			Message:     jm.Message,
+			Function:    jm.Function,
+			PayloadType: payloadType,
 		}
 	}
 
@@ -106,13 +114,7 @@ func main() {
 				"address":  msg.Address,
 				"message":  msg.Message,
 				"function": msg.Function,
-				"type": func() string {
-					if msg.Function == 0 {
-						return "numeric"
-					} else {
-						return "alphanumeric"
-					}
-				}(),
+				"type":     displayPayloadType(msg.Function, msg.PayloadType),
 			}
 		}
 		numSamples := (len(wavData) - 44) / 2
@@ -135,10 +137,36 @@ func main() {
 		fmt.Printf("   Size: %d bytes, Duration: %.2f s\n", len(wavData), durationSec)
 		for i, msg := range messages {
 			msgType := "ALPHA"
-			if msg.Function == 0 {
+			if displayPayloadType(msg.Function, msg.PayloadType) == "numeric" {
 				msgType = "NUMERIC"
 			}
 			fmt.Printf("   %d. Address: %d, Type: %s, Message: %s\n", i+1, msg.Address, msgType, msg.Message)
 		}
 	}
+}
+
+func normalizePayloadType(payloadType string) string {
+	switch strings.ToLower(strings.TrimSpace(payloadType)) {
+	case "":
+		return ""
+	case "numeric":
+		return pocsag.PayloadTypeNumeric
+	case "alpha", "alphanumeric":
+		return pocsag.PayloadTypeAlpha
+	default:
+		return ""
+	}
+}
+
+func displayPayloadType(function uint8, payloadType string) string {
+	if payloadType == pocsag.PayloadTypeNumeric {
+		return "numeric"
+	}
+	if payloadType == pocsag.PayloadTypeAlpha {
+		return "alphanumeric"
+	}
+	if function == pocsag.FuncNumeric {
+		return "numeric"
+	}
+	return "alphanumeric"
 }

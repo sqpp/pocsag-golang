@@ -10,6 +10,7 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Explicit payload encoding selection
 
 - Added explicit POCSAG payload-type APIs so callers can choose numeric BCD or alphanumeric packing independently from the transmitted 2-bit function value.
+- Added `pocsag --type numeric|alpha` and burst JSON `payload_type` support for the same explicit payload encoding selection from the command line.
 - Added explicit decode support for callers that already know whether a received payload should be interpreted as numeric or alpha.
 - Kept legacy behavior for existing calls: function `0` still defaults to numeric payload encoding, and function `3` still defaults to alphanumeric.
 

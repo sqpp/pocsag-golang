@@ -7,6 +7,7 @@ import (
 	"math"
 	"math/cmplx"
 	"os"
+	"strings"
 
 	pocsag "github.com/sqpp/pocsag-golang/v2"
 )
@@ -23,6 +24,8 @@ func main() {
 
 	funcCode := flag.Uint("function", pocsag.FuncAlphanumeric, "Message type: 0=numeric, 3=alphanumeric (default: 3)")
 	flag.UintVar(funcCode, "f", pocsag.FuncAlphanumeric, "Message type: 0=numeric, 3=alphanumeric")
+
+	payloadType := flag.String("type", "", "Payload encoding: numeric or alpha (optional; defaults from --function)")
 
 	baudRate := flag.Int("baud", pocsag.BaudRate1200, "Baud rate: 512, 1200, or 2400 (default: 1200)")
 	flag.IntVar(baudRate, "b", pocsag.BaudRate1200, "Baud rate: 512, 1200, or 2400")
@@ -72,23 +75,46 @@ func main() {
 		os.Exit(1)
 	}
 
+	normalizedPayloadType := normalizePayloadType(*payloadType)
+	if *payloadType != "" && normalizedPayloadType == "" {
+		fmt.Fprintln(os.Stderr, "Error: Invalid payload type. Supported types: numeric, alpha")
+		os.Exit(1)
+	}
+
 	addressVal := uint32(*address)
 
 	var packet []byte
 	var err error
 
 	if *encrypt {
+		if normalizedPayloadType == pocsag.PayloadTypeNumeric {
+			fmt.Fprintln(os.Stderr, "Error: --type numeric cannot be used with encryption because encrypted payloads are Base64 text")
+			os.Exit(1)
+		}
 		encryptionConfig := pocsag.EncryptionConfig{
 			Method: pocsag.EncryptionAES256,
 			Key:    pocsag.KeyFromPassword(*key, 32),
 		}
-		packet, err = pocsag.CreatePOCSAGPacketWithEncryption(addressVal, *message, uint8(*funcCode), *baudRate, encryptionConfig)
+		if normalizedPayloadType != "" {
+			encryptedMessage, err := pocsag.EncryptMessage(*message, encryptionConfig)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error creating encrypted packet: %v\n", err)
+				os.Exit(1)
+			}
+			packet = pocsag.CreatePOCSAGPacketWithBaudRateAndPayloadType(addressVal, encryptedMessage, uint8(*funcCode), *baudRate, normalizedPayloadType)
+		} else {
+			packet, err = pocsag.CreatePOCSAGPacketWithEncryption(addressVal, *message, uint8(*funcCode), *baudRate, encryptionConfig)
+		}
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error creating encrypted packet: %v\n", err)
 			os.Exit(1)
 		}
 	} else {
-		packet = pocsag.CreatePOCSAGPacketWithBaudRate(addressVal, *message, uint8(*funcCode), *baudRate)
+		if normalizedPayloadType != "" {
+			packet = pocsag.CreatePOCSAGPacketWithBaudRateAndPayloadType(addressVal, *message, uint8(*funcCode), *baudRate, normalizedPayloadType)
+		} else {
+			packet = pocsag.CreatePOCSAGPacketWithBaudRate(addressVal, *message, uint8(*funcCode), *baudRate)
+		}
 	}
 
 	// Generate waterfall PNG via OpenGL (headless offscreen rendering)
@@ -187,19 +213,14 @@ func main() {
 
 	if *jsonOutput {
 		result := map[string]interface{}{
-			"success":   true,
-			"output":    *output,
-			"address":   *address,
-			"function":  *funcCode,
-			"message":   *message,
-			"baud":      *baudRate,
-			"encrypted": *encrypt,
-			"type": func() string {
-				if *funcCode == 0 {
-					return "numeric"
-				}
-				return "alphanumeric"
-			}(),
+			"success":    true,
+			"output":     *output,
+			"address":    *address,
+			"function":   *funcCode,
+			"message":    *message,
+			"baud":       *baudRate,
+			"encrypted":  *encrypt,
+			"type":       displayPayloadType(uint8(*funcCode), normalizedPayloadType),
 			"size":       len(wavData),
 			"duration_s": float64((len(wavData)-44)/2) / float64(pocsag.SampleRate),
 		}
@@ -214,7 +235,7 @@ func main() {
 		if *waterfallFile != "" {
 			fmt.Printf("✅ Generated waterfall: %s\n", *waterfallFile)
 		}
-		fmt.Printf("   Address: %d, Function: %d, Baud: %d, Message: %s\n", *address, *funcCode, *baudRate, *message)
+		fmt.Printf("   Address: %d, Function: %d, Type: %s, Baud: %d, Message: %s\n", *address, *funcCode, displayPayloadType(uint8(*funcCode), normalizedPayloadType), *baudRate, *message)
 		numSamples := (len(wavData) - 44) / 2
 		durationSec := float64(numSamples) / float64(pocsag.SampleRate)
 		fmt.Printf("   Size: %d bytes, Duration: %.2f s\n", len(wavData), durationSec)
@@ -223,4 +244,30 @@ func main() {
 			fmt.Printf("Note: This message is encrypted. Use pocsag-decode with --key to decrypt.\n")
 		}
 	}
+}
+
+func normalizePayloadType(payloadType string) string {
+	switch strings.ToLower(strings.TrimSpace(payloadType)) {
+	case "":
+		return ""
+	case "numeric":
+		return pocsag.PayloadTypeNumeric
+	case "alpha", "alphanumeric":
+		return pocsag.PayloadTypeAlpha
+	default:
+		return ""
+	}
+}
+
+func displayPayloadType(function uint8, payloadType string) string {
+	if payloadType == pocsag.PayloadTypeNumeric {
+		return "numeric"
+	}
+	if payloadType == pocsag.PayloadTypeAlpha {
+		return "alphanumeric"
+	}
+	if function == pocsag.FuncNumeric {
+		return "numeric"
+	}
+	return "alphanumeric"
 }

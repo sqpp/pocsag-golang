@@ -51,12 +51,27 @@ Generate a POCSAG message as a WAV file.
 
 **Optional:**
 - `-o` / `--output` — output WAV file (default: `output.wav`)
-- `-f` / `--function` — `0` = numeric, `3` = alphanumeric (default: `3`)
+- `-f` / `--function` — 2-bit POCSAG function value to transmit: `0`, `1`, `2`, or `3` (default: `3`)
+- `--type` — payload encoding: `numeric` or `alpha` (optional; defaults to legacy mapping: function `0` = numeric, otherwise alpha)
 - `-b` / `--baud` — baud rate: `512`, `1200`, or `2400` (default: `1200`)
 - `-e` / `--encrypt` — enable AES-256 encryption
 - `-k` / `--key` — encryption password (required with `-e`)
 - `-j` / `--json` — print result as JSON instead of human-readable text
 - `-w` / `--waterfall` — save a waterfall spectrogram PNG of the signal
+
+**Function bits vs payload encoding:**
+
+| Setting | Goes over the air? | Purpose | Values | Example |
+|---|---:|---|---|---|
+| `-f` / `--function` | Yes | Sets the 2-bit function value in the POCSAG address codeword. Pagers use this as a programmed slot/alert selector. | `0`, `1`, `2`, `3` | `-f 1` |
+| `--type` | No | Selects how this tool packs the following message codewords. Use it when the desired payload encoding is not the legacy default for the function value. | `numeric`, `alpha` | `--type numeric` |
+
+| Command intent | CLI flags | Result |
+|---|---|---|
+| Legacy numeric | `-f 0` | Sends function bits `0`, encodes payload as numeric BCD. |
+| Legacy alpha | `-f 3` | Sends function bits `3`, encodes payload as 7-bit alphanumeric. |
+| Numeric on another function slot | `-f 1 --type numeric` | Sends function bits `1`, encodes payload as numeric BCD. |
+| Alpha on another function slot | `-f 0 --type alpha` | Sends function bits `0`, encodes payload as 7-bit alphanumeric. |
 
 **Examples:**
 
@@ -66,6 +81,9 @@ pocsag -a 123456 -m "HELLO WORLD" -o message.wav
 
 # Numeric at 512 baud
 pocsag -a 999888 -m "0123456789" -f 0 -b 512 -o numeric.wav
+
+# Numeric payload on function slot 1
+pocsag -a 999888 -m "0123456789" -f 1 --type numeric -o numeric-f1.wav
 
 # Fast 2400 baud
 pocsag -a 123456 -m "FAST MSG" -b 2400 -o fast.wav
@@ -83,7 +101,7 @@ pocsag -a 123456 -m "TEST" -o test.wav --json
 **Normal output:**
 ```
 ✅ Generated message.wav
-   Address: 123456, Function: 3, Baud: 1200, Message: HELLO WORLD
+   Address: 123456, Function: 3, Type: alphanumeric, Baud: 1200, Message: HELLO WORLD
 
 Decode: pocsag-decode -i message.wav  or  multimon-ng -t wav -a POCSAG1200 message.wav
 ```
@@ -145,7 +163,7 @@ Pack multiple messages for different pagers into a single WAV file.
 [
   {"address": 123456, "message": "FIRST MESSAGE", "function": 3},
   {"address": 789012, "message": "SECOND MESSAGE", "function": 3},
-  {"address": 345678, "message": "0123456789", "function": 0}
+  {"address": 345678, "message": "0123456789", "function": 1, "payload_type": "numeric"}
 ]
 ```
 
@@ -222,11 +240,14 @@ for _, msg := range messages {
 |----------|-------------|
 | `CreatePOCSAGPacket(addr, msg, fn)` | Encode a message at 1200 baud |
 | `CreatePOCSAGPacketWithBaudRate(addr, msg, fn, baud)` | Encode at a specific baud rate |
+| `CreatePOCSAGPacketWithPayloadType(addr, msg, fn, type)` | Encode with function bits and payload encoding selected separately |
+| `CreatePOCSAGPacketWithBaudRateAndPayloadType(addr, msg, fn, baud, type)` | Encode at a specific baud with explicit payload encoding |
 | `ConvertToAudio(data)` | Convert to WAV bytes (1200 baud) |
 | `ConvertToAudioWithBaudRate(data, baud)` | Convert to WAV at specific baud |
 | `DecodeFromAudio(wavData)` | Decode a WAV (assumes 1200 baud) |
 | `DecodeFromAudioWithBaudRate(wavData, baud)` | Decode at specific baud |
 | `DecodeFromBinary(data)` | Decode raw POCSAG bytes |
+| `DecodeFromBinaryWithPayloadType(data, type)` | Decode raw POCSAG bytes with explicit numeric/alpha interpretation |
 
 ---
 
