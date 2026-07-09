@@ -415,11 +415,6 @@ func decodeNumericFromBits(bits []byte) string {
 		}
 		nibble = BitReverse4(nibble)
 
-		// Stop at terminator (0xA = unused nibble)
-		if nibble == 0xA {
-			break
-		}
-
 		char := bcdToChar(nibble)
 		if char != 0 {
 			result = append(result, char)
@@ -438,6 +433,8 @@ func bcdToChar(nibble byte) rune {
 	switch nibble {
 	case 0, 1, 2, 3, 4, 5, 6, 7, 8, 9:
 		return rune('0' + nibble)
+	case 0xA:
+		return '*'
 	case 0xB:
 		return 'U'
 	case 0xC:

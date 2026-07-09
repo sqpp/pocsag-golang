@@ -56,30 +56,17 @@ func NumericBCDEncoder(message string) []byte {
 	// Convert characters to BCD nibbles
 	nibbles := make([]byte, 0, len(message))
 	for i := 0; i < len(message); i++ {
-		ch := message[i]
-		var nibble byte
-		switch {
-		case ch >= '0' && ch <= '9':
-			nibble = ch - '0'
-		case ch == 'U' || ch == 'u':
-			nibble = 0xB // Urgency
-		case ch == ' ':
-			nibble = 0xC // Space
-		case ch == '-':
-			nibble = 0xD // Hyphen
-		case ch == ']':
-			nibble = 0xE // Right bracket
-		case ch == '[':
-			nibble = 0xF // Left bracket
-		default:
-			nibble = 0xC // Default to space for invalid chars
-		}
+		nibble := numericCharToNibble(message[i])
 		// Reverse bits in nibble (POCSAG numeric uses bit-reversed BCD)
 		nibbles = append(nibbles, BitReverse4(nibble))
 	}
 
-	// Add terminator (0xA = unused nibble) to mark end of message
-	nibbles = append(nibbles, BitReverse4(0xA))
+	// Numeric messages do not carry an in-band terminator. Pad to whole
+	// 20-bit POCSAG payloads with spaces so external decoders do not show
+	// artificial '*' or '0' characters.
+	for len(nibbles)%5 != 0 {
+		nibbles = append(nibbles, BitReverse4(0xC))
+	}
 
 	// Pack nibbles into bytes (2 nibbles per byte, MSB first)
 	numBytes := (len(nibbles) + 1) / 2
@@ -102,6 +89,54 @@ func NumericBCDEncoder(message string) []byte {
 	}
 
 	return encoded
+}
+
+func numericCharToNibble(ch byte) byte {
+	switch {
+	case ch >= '0' && ch <= '9':
+		return ch - '0'
+	case ch == '*':
+		return 0xA
+	case ch == 'U' || ch == 'u':
+		return 0xB // Urgency
+	case ch == ' ':
+		return 0xC // Space
+	case ch == '-':
+		return 0xD // Hyphen
+	case ch == ']':
+		return 0xE // Right bracket
+	case ch == '[':
+		return 0xF // Left bracket
+	default:
+		return 0xC // Default to space for invalid chars
+	}
+}
+
+func splitNumericMessageIntoFrames(message string) []uint32 {
+	if len(message) == 0 {
+		return nil
+	}
+
+	nibbles := make([]byte, 0, len(message)+4)
+	for i := 0; i < len(message); i++ {
+		nibbles = append(nibbles, numericCharToNibble(message[i]))
+	}
+	for len(nibbles)%5 != 0 {
+		nibbles = append(nibbles, 0xC)
+	}
+
+	codewords := make([]uint32, 0, len(nibbles)/5)
+	for i := 0; i < len(nibbles); i += 5 {
+		var data uint32
+		for j := 0; j < 5; j++ {
+			data = (data << 4) | uint32(BitReverse4(nibbles[i+j]))
+		}
+		cw := (uint32(1) << 31) | (data << 11)
+		cw = CalculateBCH(cw)
+		cw = CalculateEvenParity(cw)
+		codewords = append(codewords, cw)
+	}
+	return codewords
 }
 
 // Ascii7BitEncoder encodes ASCII string to 7-bit - exact port from pocsag.c lines 122-162
@@ -280,13 +315,13 @@ func CreatePOCSAGBurstWithBaudRate(messages []MessageInfo, baudRate int) []byte 
 
 	for _, msg := range messages {
 		addressCW := EncodeAddress(msg.Address, msg.Function)
-		var encodedMessage []byte
+		var messageCWs []uint32
 		if msg.Function == FuncNumeric {
-			encodedMessage = NumericBCDEncoder(msg.Message)
+			messageCWs = splitNumericMessageIntoFrames(msg.Message)
 		} else {
-			encodedMessage = Ascii7BitEncoder(msg.Message)
+			encodedMessage := Ascii7BitEncoder(msg.Message)
+			messageCWs = SplitMessageIntoFrames(encodedMessage)
 		}
-		messageCWs := SplitMessageIntoFrames(encodedMessage)
 		allCWs := append([]uint32{addressCW}, messageCWs...)
 
 		f := int(msg.Address % 8) // target frame 0..7

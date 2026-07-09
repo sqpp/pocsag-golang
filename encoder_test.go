@@ -74,6 +74,29 @@ func TestMessageParity(t *testing.T) {
 	}
 }
 
+func TestNumericMessagesDoNotTransmitTerminator(t *testing.T) {
+	cases := []string{
+		"123124242",
+		"123124242 212",
+		"12312424",
+		"12*34",
+	}
+
+	for _, message := range cases {
+		packet := CreatePOCSAGPacket(1234567, message, FuncNumeric)
+		decoded, err := DecodeFromBinary(packet)
+		if err != nil {
+			t.Fatalf("DecodeFromBinary(%q) failed: %v", message, err)
+		}
+		if len(decoded) != 1 {
+			t.Fatalf("DecodeFromBinary(%q) got %d messages, want 1: %v", message, len(decoded), decoded)
+		}
+		if decoded[0].Message != message {
+			t.Errorf("numeric round trip mismatch: got %q, want %q", decoded[0].Message, message)
+		}
+	}
+}
+
 func TestExample(t *testing.T) {
 	// Generate example file like the C tool
 	packet := CreatePOCSAGPacket(4444, "Broadcast this on hackrf", FuncAlphanumeric)
