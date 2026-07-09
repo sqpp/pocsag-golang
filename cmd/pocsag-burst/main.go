@@ -45,8 +45,8 @@ func main() {
 		fmt.Fprintln(os.Stderr, "  pocsag-burst -j messages.json -jo")
 		fmt.Fprintln(os.Stderr, "\nJSON format:")
 		fmt.Fprintln(os.Stderr, `  [
-    {"address": 123456, "message": "FIRST MESSAGE", "function": 3},
-    {"address": 789012, "message": "SECOND MESSAGE", "function": 3},
+    {"address": 123456, "message": "FIRST MESSAGE", "function": 3, "payload_type": "alpha"},
+    {"address": 789012, "message": "SECOND MESSAGE", "function": 3, "payload_type": "alpha"},
     {"address": 345678, "message": "0123456789", "function": 1, "payload_type": "numeric"}
   ]`)
 		os.Exit(1)
@@ -83,7 +83,7 @@ func main() {
 	messages := make([]pocsag.MessageInfo, len(jsonMessages))
 	for i, jm := range jsonMessages {
 		payloadType := normalizePayloadType(jm.PayloadType)
-		if jm.PayloadType != "" && payloadType == "" {
+		if payloadType == "" {
 			fmt.Fprintf(os.Stderr, "Error: Invalid payload_type for message %d. Supported types: numeric, alpha\n", i+1)
 			os.Exit(1)
 		}
@@ -114,7 +114,7 @@ func main() {
 				"address":  msg.Address,
 				"message":  msg.Message,
 				"function": msg.Function,
-				"type":     displayPayloadType(msg.Function, msg.PayloadType),
+				"type":     displayPayloadType(msg.PayloadType),
 			}
 		}
 		numSamples := (len(wavData) - 44) / 2
@@ -137,7 +137,7 @@ func main() {
 		fmt.Printf("   Size: %d bytes, Duration: %.2f s\n", len(wavData), durationSec)
 		for i, msg := range messages {
 			msgType := "ALPHA"
-			if displayPayloadType(msg.Function, msg.PayloadType) == "numeric" {
+			if displayPayloadType(msg.PayloadType) == "numeric" {
 				msgType = "NUMERIC"
 			}
 			fmt.Printf("   %d. Address: %d, Type: %s, Message: %s\n", i+1, msg.Address, msgType, msg.Message)
@@ -158,15 +158,12 @@ func normalizePayloadType(payloadType string) string {
 	}
 }
 
-func displayPayloadType(function uint8, payloadType string) string {
+func displayPayloadType(payloadType string) string {
 	if payloadType == pocsag.PayloadTypeNumeric {
 		return "numeric"
 	}
 	if payloadType == pocsag.PayloadTypeAlpha {
 		return "alphanumeric"
 	}
-	if function == pocsag.FuncNumeric {
-		return "numeric"
-	}
-	return "alphanumeric"
+	return ""
 }

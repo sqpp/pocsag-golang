@@ -5,14 +5,23 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [2.3.5] - 2026-07-09
+
+### Explicit CLI payload encoding
+
+- Made `pocsag --type numeric|alpha` required so the CLI no longer guesses payload encoding from function bits.
+- Made burst JSON `payload_type` required for every message.
+- Updated README examples and tables to describe real POCSAG function bits separately from local payload packing instructions.
+
+---
+
 ## [2.3.4] - 2026-07-09
 
 ### Explicit payload encoding selection
 
 - Added explicit POCSAG payload-type APIs so callers can choose numeric BCD or alphanumeric packing independently from the transmitted 2-bit function value.
-- Added `pocsag --type numeric|alpha` and burst JSON `payload_type` support for the same explicit payload encoding selection from the command line.
+- Added `pocsag --type numeric|alpha` and burst JSON `payload_type` support for explicit payload encoding selection from the command line.
 - Added explicit decode support for callers that already know whether a received payload should be interpreted as numeric or alpha.
-- Kept legacy behavior for existing calls: function `0` still defaults to numeric payload encoding, and function `3` still defaults to alphanumeric.
 
 ---
 
@@ -110,6 +119,7 @@ Big feature release:
 
 ---
 
+[2.3.5]: https://github.com/sqpp/pocsag-golang/compare/v2.3.4...v2.3.5
 [2.3.4]: https://github.com/sqpp/pocsag-golang/compare/v2.3.3...v2.3.4
 [2.3.3]: https://github.com/sqpp/pocsag-golang/compare/v2.3.2...v2.3.3
 [2.3.2]: https://github.com/sqpp/pocsag-golang/compare/v2.3.0...v2.3.2

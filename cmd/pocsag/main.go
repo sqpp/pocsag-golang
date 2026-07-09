@@ -22,10 +22,10 @@ func main() {
 	output := flag.String("output", "output.wav", "Output WAV file path")
 	flag.StringVar(output, "o", "output.wav", "Output WAV file path")
 
-	funcCode := flag.Uint("function", pocsag.FuncAlphanumeric, "Message type: 0=numeric, 3=alphanumeric (default: 3)")
-	flag.UintVar(funcCode, "f", pocsag.FuncAlphanumeric, "Message type: 0=numeric, 3=alphanumeric")
+	funcCode := flag.Uint("function", pocsag.FuncAlphanumeric, "2-bit POCSAG function value to transmit: 0, 1, 2, or 3")
+	flag.UintVar(funcCode, "f", pocsag.FuncAlphanumeric, "2-bit POCSAG function value to transmit: 0, 1, 2, or 3")
 
-	payloadType := flag.String("type", "", "Payload encoding: numeric or alpha (optional; defaults from --function)")
+	payloadType := flag.String("type", "", "Payload encoding: numeric or alpha - REQUIRED")
 
 	baudRate := flag.Int("baud", pocsag.BaudRate1200, "Baud rate: 512, 1200, or 2400 (default: 1200)")
 	flag.IntVar(baudRate, "b", pocsag.BaudRate1200, "Baud rate: 512, 1200, or 2400")
@@ -52,14 +52,14 @@ func main() {
 		os.Exit(0)
 	}
 
-	if *address == 0 || *message == "" {
-		fmt.Fprintln(os.Stderr, "Error: Address and message are required")
+	if *address == 0 || *message == "" || strings.TrimSpace(*payloadType) == "" {
+		fmt.Fprintln(os.Stderr, "Error: Address, message, and payload type are required")
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "Note: POCSAG addresses must be multiples of 8")
 		fmt.Fprintln(os.Stderr, "      (e.g., 8, 16, 24, 123456, 1234560)")
 		fmt.Fprintln(os.Stderr, "\nUsage examples:")
-		fmt.Fprintln(os.Stderr, "  pocsag --address 123456 --message \"HELLO WORLD\" --output test.wav")
-		fmt.Fprintln(os.Stderr, "  pocsag -a 123456 -m \"HELLO WORLD\" -o test.wav -w waterfall.png")
+		fmt.Fprintln(os.Stderr, "  pocsag --address 123456 --message \"HELLO WORLD\" --function 3 --type alpha --output test.wav")
+		fmt.Fprintln(os.Stderr, "  pocsag -a 123456 -m \"12345\" -f 1 --type numeric -o test.wav")
 		fmt.Fprintln(os.Stderr, "")
 		flag.Usage()
 		os.Exit(1)
@@ -76,7 +76,7 @@ func main() {
 	}
 
 	normalizedPayloadType := normalizePayloadType(*payloadType)
-	if *payloadType != "" && normalizedPayloadType == "" {
+	if normalizedPayloadType == "" {
 		fmt.Fprintln(os.Stderr, "Error: Invalid payload type. Supported types: numeric, alpha")
 		os.Exit(1)
 	}
@@ -95,26 +95,18 @@ func main() {
 			Method: pocsag.EncryptionAES256,
 			Key:    pocsag.KeyFromPassword(*key, 32),
 		}
-		if normalizedPayloadType != "" {
-			encryptedMessage, err := pocsag.EncryptMessage(*message, encryptionConfig)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error creating encrypted packet: %v\n", err)
-				os.Exit(1)
-			}
-			packet = pocsag.CreatePOCSAGPacketWithBaudRateAndPayloadType(addressVal, encryptedMessage, uint8(*funcCode), *baudRate, normalizedPayloadType)
-		} else {
-			packet, err = pocsag.CreatePOCSAGPacketWithEncryption(addressVal, *message, uint8(*funcCode), *baudRate, encryptionConfig)
+		encryptedMessage, err := pocsag.EncryptMessage(*message, encryptionConfig)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error creating encrypted packet: %v\n", err)
+			os.Exit(1)
 		}
+		packet = pocsag.CreatePOCSAGPacketWithBaudRateAndPayloadType(addressVal, encryptedMessage, uint8(*funcCode), *baudRate, normalizedPayloadType)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error creating encrypted packet: %v\n", err)
 			os.Exit(1)
 		}
 	} else {
-		if normalizedPayloadType != "" {
-			packet = pocsag.CreatePOCSAGPacketWithBaudRateAndPayloadType(addressVal, *message, uint8(*funcCode), *baudRate, normalizedPayloadType)
-		} else {
-			packet = pocsag.CreatePOCSAGPacketWithBaudRate(addressVal, *message, uint8(*funcCode), *baudRate)
-		}
+		packet = pocsag.CreatePOCSAGPacketWithBaudRateAndPayloadType(addressVal, *message, uint8(*funcCode), *baudRate, normalizedPayloadType)
 	}
 
 	// Generate waterfall PNG via OpenGL (headless offscreen rendering)
@@ -220,7 +212,7 @@ func main() {
 			"message":    *message,
 			"baud":       *baudRate,
 			"encrypted":  *encrypt,
-			"type":       displayPayloadType(uint8(*funcCode), normalizedPayloadType),
+			"type":       displayPayloadType(normalizedPayloadType),
 			"size":       len(wavData),
 			"duration_s": float64((len(wavData)-44)/2) / float64(pocsag.SampleRate),
 		}
@@ -235,7 +227,7 @@ func main() {
 		if *waterfallFile != "" {
 			fmt.Printf("✅ Generated waterfall: %s\n", *waterfallFile)
 		}
-		fmt.Printf("   Address: %d, Function: %d, Type: %s, Baud: %d, Message: %s\n", *address, *funcCode, displayPayloadType(uint8(*funcCode), normalizedPayloadType), *baudRate, *message)
+		fmt.Printf("   Address: %d, Function: %d, Type: %s, Baud: %d, Message: %s\n", *address, *funcCode, displayPayloadType(normalizedPayloadType), *baudRate, *message)
 		numSamples := (len(wavData) - 44) / 2
 		durationSec := float64(numSamples) / float64(pocsag.SampleRate)
 		fmt.Printf("   Size: %d bytes, Duration: %.2f s\n", len(wavData), durationSec)
@@ -259,15 +251,12 @@ func normalizePayloadType(payloadType string) string {
 	}
 }
 
-func displayPayloadType(function uint8, payloadType string) string {
+func displayPayloadType(payloadType string) string {
 	if payloadType == pocsag.PayloadTypeNumeric {
 		return "numeric"
 	}
 	if payloadType == pocsag.PayloadTypeAlpha {
 		return "alphanumeric"
 	}
-	if function == pocsag.FuncNumeric {
-		return "numeric"
-	}
-	return "alphanumeric"
+	return ""
 }

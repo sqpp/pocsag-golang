@@ -1,4 +1,4 @@
-# POCSAG-GO v2.3.4
+# POCSAG-GO v2.3.5
 
 A complete Go implementation of the POCSAG pager protocol — encoder, decoder, and everything in between. Ported from [pocsag-tool](https://github.com/hazardousfirmware/pocsag-tool) and extended significantly.
 
@@ -48,11 +48,11 @@ Generate a POCSAG message as a WAV file.
 **Required:**
 - `-a` / `--address` — pager address (full 21-bit RIC/capcode, e.g. `1234567`)
 - `-m` / `--message` — the message text
+- `--type` — payload encoding: `numeric` or `alpha`
 
 **Optional:**
 - `-o` / `--output` — output WAV file (default: `output.wav`)
 - `-f` / `--function` — 2-bit POCSAG function value to transmit: `0`, `1`, `2`, or `3` (default: `3`)
-- `--type` — payload encoding: `numeric` or `alpha` (optional; defaults to legacy mapping: function `0` = numeric, otherwise alpha)
 - `-b` / `--baud` — baud rate: `512`, `1200`, or `2400` (default: `1200`)
 - `-e` / `--encrypt` — enable AES-256 encryption
 - `-k` / `--key` — encryption password (required with `-e`)
@@ -64,38 +64,37 @@ Generate a POCSAG message as a WAV file.
 | Setting | Goes over the air? | Purpose | Values | Example |
 |---|---:|---|---|---|
 | `-f` / `--function` | Yes | Sets the 2-bit function value in the POCSAG address codeword. Pagers use this as a programmed slot/alert selector. | `0`, `1`, `2`, `3` | `-f 1` |
-| `--type` | No | Selects how this tool packs the following message codewords. Use it when the desired payload encoding is not the legacy default for the function value. | `numeric`, `alpha` | `--type numeric` |
+| `--type` | No | Selects how this tool packs the following message codewords. This is an encoder instruction, not an extra POCSAG field. | `numeric`, `alpha` | `--type numeric` |
 
 | Command intent | CLI flags | Result |
 |---|---|---|
-| Legacy numeric | `-f 0` | Sends function bits `0`, encodes payload as numeric BCD. |
-| Legacy alpha | `-f 3` | Sends function bits `3`, encodes payload as 7-bit alphanumeric. |
-| Numeric on another function slot | `-f 1 --type numeric` | Sends function bits `1`, encodes payload as numeric BCD. |
+| Numeric | `-f 1 --type numeric` | Sends function bits `1`, encodes payload as numeric BCD. |
+| Alpha | `-f 3 --type alpha` | Sends function bits `3`, encodes payload as 7-bit alphanumeric. |
 | Alpha on another function slot | `-f 0 --type alpha` | Sends function bits `0`, encodes payload as 7-bit alphanumeric. |
 
 **Examples:**
 
 ```bash
 # Basic message
-pocsag -a 123456 -m "HELLO WORLD" -o message.wav
+pocsag -a 123456 -m "HELLO WORLD" -f 3 --type alpha -o message.wav
 
 # Numeric at 512 baud
-pocsag -a 999888 -m "0123456789" -f 0 -b 512 -o numeric.wav
+pocsag -a 999888 -m "0123456789" -f 1 --type numeric -b 512 -o numeric.wav
 
 # Numeric payload on function slot 1
 pocsag -a 999888 -m "0123456789" -f 1 --type numeric -o numeric-f1.wav
 
 # Fast 2400 baud
-pocsag -a 123456 -m "FAST MSG" -b 2400 -o fast.wav
+pocsag -a 123456 -m "FAST MSG" -f 3 --type alpha -b 2400 -o fast.wav
 
 # With encryption
-pocsag -a 123456 -m "SECRET" -e -k "mypassword" -o encrypted.wav
+pocsag -a 123456 -m "SECRET" -f 3 --type alpha -e -k "mypassword" -o encrypted.wav
 
 # With waterfall image
-pocsag -a 123456 -m "HELLO WORLD" -o message.wav -w waterfall.png
+pocsag -a 123456 -m "HELLO WORLD" -f 3 --type alpha -o message.wav -w waterfall.png
 
 # JSON output (great for scripts)
-pocsag -a 123456 -m "TEST" -o test.wav --json
+pocsag -a 123456 -m "TEST" -f 3 --type alpha -o test.wav --json
 ```
 
 **Normal output:**
@@ -161,8 +160,8 @@ Pack multiple messages for different pagers into a single WAV file.
 **Input JSON format:**
 ```json
 [
-  {"address": 123456, "message": "FIRST MESSAGE", "function": 3},
-  {"address": 789012, "message": "SECOND MESSAGE", "function": 3},
+  {"address": 123456, "message": "FIRST MESSAGE", "function": 3, "payload_type": "alpha"},
+  {"address": 789012, "message": "SECOND MESSAGE", "function": 3, "payload_type": "alpha"},
   {"address": 345678, "message": "0123456789", "function": 1, "payload_type": "numeric"}
 ]
 ```
@@ -181,7 +180,7 @@ Pass `-w output.png` to the encoder and it generates a frequency×time spectrogr
 This runs headless — no window pops up, it just writes the PNG and exits.
 
 ```bash
-pocsag -a 123456 -m "HELLO" -o msg.wav -w waterfall.png
+pocsag -a 123456 -m "HELLO" -f 3 --type alpha -o msg.wav -w waterfall.png
 ```
 
 There are two waterfall implementations in the library:
@@ -204,7 +203,7 @@ Encrypted messages appear as Base64 text in tools like `multimon-ng` that don't 
 
 ```bash
 # Encrypt
-pocsag -a 123456 -m "CONFIDENTIAL" -e -k "strongpassword" -o enc.wav
+pocsag -a 123456 -m "CONFIDENTIAL" -f 3 --type alpha -e -k "strongpassword" -o enc.wav
 
 # Decrypt
 pocsag-decode -i enc.wav -k "strongpassword"
@@ -220,7 +219,7 @@ Import as `github.com/sqpp/pocsag-golang/v2`.
 ```go
 import pocsag "github.com/sqpp/pocsag-golang/v2"
 
-packet := pocsag.CreatePOCSAGPacket(123456, "HELLO WORLD", pocsag.FuncAlphanumeric)
+packet := pocsag.CreatePOCSAGPacketWithPayloadType(123456, "HELLO WORLD", 3, pocsag.PayloadTypeAlpha)
 wavData := pocsag.ConvertToAudio(packet)
 os.WriteFile("output.wav", wavData, 0644)
 ```
@@ -238,8 +237,6 @@ for _, msg := range messages {
 
 | Function | Description |
 |----------|-------------|
-| `CreatePOCSAGPacket(addr, msg, fn)` | Encode a message at 1200 baud |
-| `CreatePOCSAGPacketWithBaudRate(addr, msg, fn, baud)` | Encode at a specific baud rate |
 | `CreatePOCSAGPacketWithPayloadType(addr, msg, fn, type)` | Encode with function bits and payload encoding selected separately |
 | `CreatePOCSAGPacketWithBaudRateAndPayloadType(addr, msg, fn, baud, type)` | Encode at a specific baud with explicit payload encoding |
 | `ConvertToAudio(data)` | Convert to WAV bytes (1200 baud) |
